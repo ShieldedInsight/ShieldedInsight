@@ -39,3 +39,27 @@ The run needs network access to `query1.finance.yahoo.com` and `query2.finance.y
 | Sample | 10 | 40 trades or more |
 
 Any result with a profit factor of 1.5 or less is marked "fails PF > 1.5", whatever its score.
+
+# TruePath_ORB_v2: confirmed breakout, order at the level
+
+v2 keeps v1's opening range, midpoint stop, 2R target and prop-firm guards, and changes how a trade starts:
+
+1. **Confirm the breakout.** The bar that closes outside the range must show momentum: RSI(14) ≥ 60 for longs (≤ 40 for shorts), and a close in the top 60% of the bar for longs (bottom 60% for shorts). A volume check is optional: the breakout bar's volume must be at least X × the average opening-range bar. It's off by default because it made results worse in testing.
+2. **Order at the level.** Once a breakout is confirmed, a buy limit rests at the range high (a sell limit at the range low for shorts) for 6 bars. The trade only fills if price comes back to retest the level. The stop is the range midpoint and the target is 2R from the level. "At Close (market)" is still available as an option.
+
+Unconfirmed breaks are marked on the chart with a grey ×.
+
+```bash
+python truepath/orb_backtest.py --version 2     # writes trader/truepath_orb_v2_backtest.json
+```
+
+## v2 results, OpenBB 5m, 2026-09-28 → 2026-11-25 (≈52 sessions, 50K account)
+
+| Contract | Trades | Net | Profit factor | Win rate | Prop score |
+|---|---|---|---|---|---|
+| MES | 20 | +$428 | 2.58 | 55% | 85 strong |
+| MNQ | 18 | +$383 | 1.57 | 39% | 61 workable |
+| ES | 16 | +$238 | 1.11 | — | 36 fails |
+| NQ | 7 | −$1,397 | 0.39 | — | 19 fails |
+
+**Read these with care.** The defaults were picked by testing on this same window, and each contract has fewer than 25 trades. With so few trades this is a lead worth following up, not a proven edge. ES and NQ trail the micros because of the $500 per-trade cap: at $50 and $20 a point, it only lets through days with a narrow range (about 10 points on ES and 25 on NQ), and those days did worse. Run the strategy on MES or MNQ, or raise the cap. Check a full year in TradingView's Strategy Tester before trading it live.

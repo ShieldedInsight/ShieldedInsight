@@ -1,12 +1,17 @@
-"""TruePath_ORB_v1 backtest and tuner, fed by OpenBB.
+"""TruePath ORB backtest and tuner, fed by OpenBB.
 
-Replays the same rules as truepath/TruePath_ORB_v1.pine on 5-minute bars, grid-searches
-the main inputs on the first part of the data (in-sample), checks the winners on the rest
-(out-of-sample), and scores each against prop-firm rules. Writes trader/truepath_orb_backtest.json.
+Replays the rules of truepath/TruePath_ORB_v1.pine and TruePath_ORB_v2.pine on 5-minute bars,
+grid-searches the main inputs on the first part of the data (in-sample), checks the winners on
+the rest (out-of-sample), and scores each against prop-firm rules.
 
-    python truepath/orb_backtest.py                          # ES=F NQ=F MES=F MNQ=F via OpenBB/yfinance
-    python truepath/orb_backtest.py --symbols ES=F --account 100000
+    python truepath/orb_backtest.py --version 2              # ES=F NQ=F MES=F MNQ=F via OpenBB/yfinance
+    python truepath/orb_backtest.py --version 1 --symbols ES=F --account 100000
     python truepath/orb_backtest.py --csv bars.csv --symbols ES=F   # offline: date,open,high,low,close,volume
+
+v1: enter at the close of the first bar that closes outside the 9:30-9:45 ET range.
+v2: the breakout bar must confirm (volume >= X x the average opening-range bar, RSI past a
+    threshold, close in the outer part of the bar); then either enter at its close ("close")
+    or rest a limit order at the broken level for N bars and enter on the retest ("level").
 
 Yahoo serves 5-minute bars for about the last 60 days only, so treat the result as a first
 read, not a 1-year backtest. Confirm on TradingView's Strategy Tester before trading it.
@@ -18,14 +23,13 @@ import argparse
 import itertools
 import json
 import math
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 from datetime import datetime, time, timezone
 from pathlib import Path
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "trader" / "truepath_orb_backtest.json"
 
 # Point value ($ per 1.00 move) and tick size.
 SPECS = {
@@ -53,6 +57,18 @@ class Params:
     daily_loss_usd: float = 1000.0
     allow_longs: bool = True
     allow_shorts: bool = True
+    # v2 confirmation and order type (defaults = off, i.e. v1 behaviour)
+    entry_mode: str = "close"     # close | level
+    vol_mult: float = 0.0         # breakout-bar volume >= vol_mult x avg opening-range bar volume (0 = off)
+    rsi_long: float = 0.0         # RSI(14) must be >= this for longs and <= 100 - this for shorts (0 = off)
+    close_loc: float = 0.0        # close in the top (long) / bottom (short) share of the bar, e.g. 0.6 (0 = off)
+    retest_bars: int = 6          # how long the level order rests before it is cancelled
+
+
+V1 = Params()
+# Matches the TruePath_ORB_v2.pine defaults.
+V2 = Params(vwap_filter=False, first_break_only=False, entry_mode="level", vol_mult=0.0,
+            rsi_long=60.0, close_loc=0.6, retest_bars=6, stop_mode="mid", atr_mult=1.0, reward=2.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -67,7 +83,7 @@ def load_openbb(symbol: str, start: str) -> pd.DataFrame:
 
 
 def load_csv(path: str) -> pd.DataFrame:
-    return normalize(pd.read_csv(path, index_col=0, parse_dates=True))
+    return normalize(pd.read_csv(path, index_col=0))
 
 
 def normalize(df: pd.DataFrame) -> pd.DataFrame:
@@ -85,10 +101,17 @@ def spec_for(symbol: str) -> tuple[float, float]:
     return SPECS[root]
 
 
-def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
+def rma(s: pd.Series, n: int) -> pd.Series:
+    return s.ewm(alpha=1 / n, adjust=False).mean()  # Wilder's smoothing, as in ta.atr / ta.rsi
+
+
+def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     prev = df["close"].shift()
     tr = pd.concat([df["high"] - df["low"], (df["high"] - prev).abs(), (df["low"] - prev).abs()], axis=1).max(axis=1)
-    return tr.ewm(alpha=1 / n, adjust=False).mean()  # Wilder's RMA, same as ta.atr
+    delta = df["close"].diff()
+    up, down = rma(delta.clip(lower=0), 14), rma(-delta.clip(upper=0), 14)
+    rsi = 100 - 100 / (1 + up / down.replace(0, math.nan))
+    return df.assign(atr=rma(tr, 14), rsi=rsi.fillna(100))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -100,10 +123,13 @@ def round_tick(x: float, tick: float) -> float:
 
 
 def simulate(df: pd.DataFrame, p: Params, point_value: float, tick: float) -> list[dict]:
-    """One contract. Entry at the signal bar's close; exits from the next bar on.
-    If a bar touches both stop and target, the stop is assumed first (conservative)."""
+    """One contract. "close" entries fill at the signal bar's close; "level" entries are limit
+    orders at the broken range edge that fill on a later bar (at the open if it gaps through).
+    If a bar touches both stop and target, the stop is assumed first (conservative); a level
+    order that fills on a bar that also reaches the stop counts as stopped on that bar."""
     trades: list[dict] = []
-    df = df.assign(atr=atr(df))
+    if "atr" not in df:
+        df = add_indicators(df)
     for day, d in df.groupby(df.index.date):
         t = d.index.time
         rng = d[(t >= OR_START) & (t < OR_END)]
@@ -111,65 +137,101 @@ def simulate(df: pd.DataFrame, p: Params, point_value: float, tick: float) -> li
             continue
         hi, lo = rng["high"].max(), rng["low"].min()
         mid = (hi + lo) / 2
+        or_vol = rng["volume"].mean()
         sess = d[t >= OR_START]
         tp = (sess["high"] + sess["low"] + sess["close"]) / 3
         vwap = (tp * sess["volume"]).cumsum() / sess["volume"].cumsum().replace(0, math.nan)
 
-        pos = None
+        pos = pending = None
         day_pnl, n_trades, broke = 0.0, 0, False
         prev_close = rng["close"].iloc[-1]
-        for ts, bar in sess[sess.index.time >= OR_END].iterrows():
+
+        def close_out(px: float, why: str, now: time) -> None:
+            nonlocal pos, day_pnl
+            side, entry, stop, target, risk, t_in = pos
+            pnl = (px - entry) * side * point_value - COMMISSION_RT
+            day_pnl += pnl
+            trades.append({"date": str(day), "side": "long" if side > 0 else "short", "entry_time": t_in,
+                           "exit_time": now.strftime("%H:%M"), "entry": entry, "exit": px, "exit_reason": why,
+                           "r": round((px - entry) * side / risk, 2), "pnl": round(pnl, 2)})
+            pos = None
+
+        after = sess[sess.index.time >= OR_END]
+        for i, (ts, bar) in enumerate(after.iterrows()):
             now = ts.time()
             if pos:
-                side, entry, stop, target, risk, t_in = pos
-                hit_stop = bar["low"] <= stop if side > 0 else bar["high"] >= stop
-                hit_tgt = bar["high"] >= target if side > 0 else bar["low"] <= target
-                exit_px, why = None, None
-                if hit_stop:
-                    exit_px, why = stop, "stop"
-                elif hit_tgt:
-                    exit_px, why = target, "target"
+                side, entry, stop, target, risk, _ = pos
+                if (bar["low"] <= stop) if side > 0 else (bar["high"] >= stop):
+                    close_out(stop, "stop", now)
+                elif (bar["high"] >= target) if side > 0 else (bar["low"] <= target):
+                    close_out(target, "target", now)
                 elif now >= FLAT_AT:
-                    exit_px, why = bar["close"], "flat"
-                else:
-                    open_pnl = (bar["close"] - entry) * side * point_value
-                    if day_pnl + open_pnl - COMMISSION_RT <= -p.daily_loss_usd:
-                        exit_px, why = bar["close"], "daily_limit"
-                if exit_px is not None:
-                    pnl = (exit_px - entry) * side * point_value - COMMISSION_RT
-                    day_pnl += pnl
-                    trades.append({"date": str(day), "side": "long" if side > 0 else "short", "entry_time": t_in,
-                                   "exit_time": now.strftime("%H:%M"), "entry": entry, "exit": exit_px,
-                                   "exit_reason": why, "r": round((exit_px - entry) * side / risk, 2),
-                                   "pnl": round(pnl, 2)})
-                    pos = None
+                    close_out(bar["close"], "flat", now)
+                elif day_pnl + (bar["close"] - entry) * side * point_value - COMMISSION_RT <= -p.daily_loss_usd:
+                    close_out(bar["close"], "daily_limit", now)
                 prev_close = bar["close"]
                 continue
 
-            can = (now < p.entry_end and day_pnl > -p.daily_loss_usd and n_trades < p.max_trades
-                   and (not p.first_break_only or not broke))
+            if pending:
+                side, level, stop, target, expires = pending
+                if i > expires or now >= p.entry_end:
+                    pending = None
+                elif (bar["low"] <= level) if side > 0 else (bar["high"] >= level):
+                    fill = min(bar["open"], level) if side > 0 else max(bar["open"], level)
+                    risk = (fill - stop) * side
+                    pending = None
+                    if risk > 0:
+                        pos = (side, fill, stop, target, risk, now.strftime("%H:%M"))
+                        n_trades += 1
+                        if (bar["low"] <= stop) if side > 0 else (bar["high"] >= stop):
+                            close_out(stop, "stop", now)
+                    prev_close = bar["close"]
+                    continue
+
+            can = (pending is None and now < p.entry_end and day_pnl > -p.daily_loss_usd
+                   and n_trades < p.max_trades and (not p.first_break_only or not broke))
             long_b = bar["close"] > hi and prev_close <= hi
             short_b = bar["close"] < lo and prev_close >= lo
             if can and (long_b or short_b):
                 broke = True
                 side = 1 if long_b else -1
-                ok = (p.allow_longs if side > 0 else p.allow_shorts)
-                if p.vwap_filter and not math.isnan(vwap[ts]):
-                    ok = ok and (bar["close"] - vwap[ts]) * side > 0
-                if p.stop_mode == "mid":
-                    stop = mid
-                elif p.stop_mode == "opposite":
-                    stop = lo if side > 0 else hi
-                else:
-                    stop = bar["close"] - side * bar["atr"] * p.atr_mult
-                stop = round_tick(stop, tick)
-                risk = (bar["close"] - stop) * side
-                if ok and risk > tick and risk * point_value <= p.max_risk_usd:
-                    target = round_tick(bar["close"] + side * risk * p.reward, tick)
-                    pos = (side, bar["close"], stop, target, risk, now.strftime("%H:%M"))
-                    n_trades += 1
+                if confirmed(bar, side, p, vwap[ts], or_vol):
+                    level = hi if side > 0 else lo
+                    ref = bar["close"] if p.entry_mode == "close" else level
+                    if p.stop_mode == "mid":
+                        stop = mid
+                    elif p.stop_mode == "opposite":
+                        stop = lo if side > 0 else hi
+                    else:
+                        stop = ref - side * bar["atr"] * p.atr_mult
+                    stop = round_tick(stop, tick)
+                    risk = (ref - stop) * side
+                    if risk > tick and risk * point_value <= p.max_risk_usd:
+                        target = round_tick(ref + side * risk * p.reward, tick)
+                        if p.entry_mode == "close":
+                            pos = (side, ref, stop, target, risk, now.strftime("%H:%M"))
+                            n_trades += 1
+                        else:
+                            pending = (side, level, stop, target, i + p.retest_bars)
             prev_close = bar["close"]
     return trades
+
+
+def confirmed(bar: pd.Series, side: int, p: Params, vwap: float, or_vol: float) -> bool:
+    if not (p.allow_longs if side > 0 else p.allow_shorts):
+        return False
+    if p.vwap_filter and not math.isnan(vwap) and (bar["close"] - vwap) * side <= 0:
+        return False
+    if p.vol_mult and bar["volume"] < p.vol_mult * or_vol:
+        return False
+    if p.rsi_long and (bar["rsi"] < p.rsi_long if side > 0 else bar["rsi"] > 100 - p.rsi_long):
+        return False
+    if p.close_loc:
+        span = bar["high"] - bar["low"]
+        loc = (bar["close"] - bar["low"]) / span if span > 0 else 0.5
+        if (loc if side > 0 else 1 - loc) < p.close_loc:
+            return False
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -220,31 +282,40 @@ def prop_score(m: dict, eod: float) -> dict:
 # TUNING
 # ══════════════════════════════════════════════════════════════════════════════
 
-GRID = {
-    "stop_mode": ["mid", "opposite", "atr"],
-    "reward": [1.5, 2.0, 2.5, 3.0],
-    "vwap_filter": [True, False],
-    "entry_end": [time(10, 30), time(11, 30), time(13, 0)],
-    "first_break_only": [True, False],
+GRIDS = {
+    1: {
+        "stop_mode": ["mid", "opposite", "atr"],
+        "reward": [1.5, 2.0, 2.5, 3.0],
+        "vwap_filter": [True, False],
+        "entry_end": [time(10, 30), time(11, 30), time(13, 0)],
+        "first_break_only": [True, False],
+    },
+    2: {
+        "entry_mode": ["close", "level"],
+        "vol_mult": [0.0, 0.8, 1.0, 1.3],
+        "rsi_long": [0.0, 55.0, 60.0],
+        "close_loc": [0.0, 0.6, 0.75],
+        "stop_mode": ["mid", "atr"],
+        "reward": [1.5, 2.0, 3.0],
+    },
 }
 
 
-def tune(df: pd.DataFrame, pv: float, tick: float, account: int, split: float, base: Params) -> dict:
+def tune(df: pd.DataFrame, pv: float, tick: float, account: int, split: float, base: Params, grid: dict) -> dict:
     days = sorted(set(df.index.date))
     cut = days[int(len(days) * split)]
     ins, oos = df[df.index.date < cut], df[df.index.date >= cut]
     rows = []
-    for combo in itertools.product(*GRID.values()):
-        p = Params(**{**asdict(base), **dict(zip(GRID, combo))})
+    for combo in itertools.product(*grid.values()):
+        p = replace(base, **dict(zip(grid, combo)))
         m = metrics(simulate(ins, p, pv, tick), account)
         if m["trades"] >= 8:
             rows.append((p, m))
     rows.sort(key=lambda r: (r[1]["prop_score"]["total"], r[1]["net_pnl"]), reverse=True)
-    top = []
-    for p, m in rows[:5]:
-        top.append({"params": jsonable(p), "in_sample": m, "out_of_sample": metrics(simulate(oos, p, pv, tick), account)})
-    return {"split_date": str(cut), "in_sample_days": len([d for d in days if d < cut]),
-            "out_of_sample_days": len([d for d in days if d >= cut]), "combos_tested": len(rows), "top": top}
+    top = [{"params": jsonable(p), "in_sample": m, "out_of_sample": metrics(simulate(oos, p, pv, tick), account)}
+           for p, m in rows[:5]]
+    return {"split_date": str(cut), "in_sample_days": sum(d < cut for d in days),
+            "out_of_sample_days": sum(d >= cut for d in days), "combos_tested": len(rows), "top": top}
 
 
 def jsonable(p: Params) -> dict:
@@ -253,6 +324,7 @@ def jsonable(p: Params) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", type=int, choices=[1, 2], default=2)
     ap.add_argument("--symbols", nargs="+", default=["ES=F", "NQ=F", "MES=F", "MNQ=F"])
     ap.add_argument("--start", default=(pd.Timestamp.now() - pd.Timedelta(days=58)).strftime("%Y-%m-%d"))
     ap.add_argument("--csv", help="offline bars for a single symbol instead of OpenBB")
@@ -260,16 +332,18 @@ def main() -> None:
     ap.add_argument("--split", type=float, default=0.67, help="share of days used for in-sample tuning")
     ap.add_argument("--max-risk", type=float, default=500.0)
     ap.add_argument("--daily-loss", type=float, default=1000.0)
-    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--out")
     a = ap.parse_args()
 
-    base = Params(max_risk_usd=a.max_risk, daily_loss_usd=a.daily_loss)
-    report = {"created_by": "truepath-orb-backtest", "strategy": "TruePath_ORB_v1",
+    out = Path(a.out or ROOT / "trader" / ("truepath_orb_backtest.json" if a.version == 1 else f"truepath_orb_v{a.version}_backtest.json"))
+    base = replace(V1 if a.version == 1 else V2, max_risk_usd=a.max_risk, daily_loss_usd=a.daily_loss)
+    report = {"created_by": "truepath-orb-backtest", "strategy": f"TruePath_ORB_v{a.version}",
               "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "source": "csv" if a.csv else "openbb/yfinance", "interval": "5m", "account": a.account,
               "eod_limit": PROP[a.account]["eod_limit"], "commission_round_trip": COMMISSION_RT,
-              "assumptions": ["1 contract", "entry at signal-bar close", "stop wins if a bar hits stop and target",
-                              "no slippage", "flat by 15:55 ET"],
+              "assumptions": ["1 contract", "close entries fill at the signal-bar close",
+                              "level entries fill at the level, or the open if a bar gaps through it",
+                              "stop wins if a bar hits stop and target", "no slippage", "flat by 15:55 ET"],
               "results": {}}
     for sym in a.symbols:
         df = load_csv(a.csv) if a.csv else load_openbb(sym, a.start)
@@ -277,19 +351,20 @@ def main() -> None:
         if df.empty:
             report["results"][sym] = {"error": "no bars returned"}
             continue
+        df = add_indicators(df)
         default_m = metrics(simulate(df, base, pv, tick), a.account)
         report["results"][sym] = {
             "bars": len(df), "first": str(df.index[0]), "last": str(df.index[-1]),
             "defaults": {"params": jsonable(base), "metrics": default_m},
-            "tuning": tune(df, pv, tick, a.account, a.split, base),
+            "tuning": tune(df, pv, tick, a.account, a.split, base, GRIDS[a.version]),
         }
         s = default_m.get("prop_score", {})
         print(f"{sym}: {default_m.get('trades', 0)} trades, net ${default_m.get('net_pnl', 0)}, "
               f"PF {default_m.get('profit_factor', '-')}, prop score {s.get('total', '-')} ({s.get('verdict', '-')})")
 
-    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(a.out).write_text(json.dumps(report, indent=2, default=str))
-    print(f"wrote {a.out}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, default=str))
+    print(f"wrote {out}")
 
 
 if __name__ == "__main__":

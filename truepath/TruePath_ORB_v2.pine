@@ -1,0 +1,224 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
+// © MoMoney8
+// @version=6
+
+strategy("TruePath_ORB_v2",
+     overlay=true,
+     initial_capital=50000,
+     default_qty_type=strategy.fixed,
+     default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract,
+     commission_value=1.55,  // $1.55 per side; TradingView charges it on entry AND exit = $3.10 round trip
+     slippage=0,
+     calc_on_every_tick=false,
+     process_orders_on_close=true,
+     max_bars_back=500)
+
+// Confirmed opening-range breakout for MES / MNQ (also ES / NQ) on a 5-minute chart.
+// 1. Build the 9:30-9:45 ET range.
+// 2. A bar must CLOSE outside it with momentum (RSI past a threshold, close in the outer part of
+//    the bar) and, optionally, volume (vs the average opening-range bar).
+// 3. Rest a limit order AT the broken level for a few bars and enter on the retest
+//    (or enter at the confirming bar's close). Stop at the range midpoint, target 2R, flat by 15:55 ET.
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+group_or = "══════ Opening Range ══════"
+orSession    = input.session("0930-0945", "Opening Range (ET)", group=group_or)
+entrySession = input.session("0945-1130", "Entry Window (ET)", group=group_or)
+flatSession  = input.session("1555-1600", "Flatten Window (ET)", group=group_or)
+
+group_entry = "══════ Entry Settings ══════"
+entryMode    = input.string("At Level (limit)", "Order Type", options=["At Level (limit)", "At Close (market)"], group=group_entry)
+retestBars   = input.int(6, "Level Order Valid For (bars)", minval=1, group=group_entry)
+allowLongs   = input.bool(true, "Allow Longs", group=group_entry)
+allowShorts  = input.bool(true, "Allow Shorts", group=group_entry)
+maxTradesDay = input.int(2, "Max Trades per Day", minval=1, group=group_entry)
+
+group_ind = "══════ Momentum & Volume Confirmation ══════"
+useRsi      = input.bool(true, "Require RSI Momentum", group=group_ind)
+rsiLength   = input.int(14, "RSI Length", minval=1, group=group_ind)
+rsiLong     = input.float(60.0, "RSI for Longs (shorts use 100 minus this)", minval=50, maxval=90, group=group_ind)
+useCloseLoc = input.bool(true, "Require Strong Close", group=group_ind)
+closeLoc    = input.float(0.6, "Close in Outer Share of the Bar", minval=0.5, maxval=1.0, step=0.05, group=group_ind)
+useVolume   = input.bool(false, "Require Breakout Volume", group=group_ind)
+volMult     = input.float(1.0, "Volume vs Avg Opening-Range Bar", minval=0.1, step=0.1, group=group_ind)
+useVwap     = input.bool(false, "Require Close on the Breakout Side of VWAP", group=group_ind)
+
+group_exit = "══════ Exit Settings ══════"
+stopMode   = input.string("Range Midpoint", "Stop Placement", options=["Range Midpoint", "Opposite Side", "ATR"], group=group_exit)
+atrLength  = input.int(14, "ATR Length", minval=1, group=group_exit)
+atrMult    = input.float(1.0, "ATR Multiplier", minval=0.1, step=0.1, group=group_exit)
+rewardMult = input.float(2.0, "Take Profit (Risk Multiple)", minval=0.5, step=0.1, group=group_exit)
+
+group_risk = "══════ Risk Management (Prop Firm) ══════"
+maxRiskUsd   = input.float(500.0, "Max Loss per Trade ($, skip if wider)", minval=1, group=group_risk)
+dailyLossUsd = input.float(1000.0, "Daily Loss Limit ($, halts trading)", minval=1, group=group_risk)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+const string TZ = "America/New_York"
+
+inOR    = not na(time(timeframe.period, orSession, TZ))
+inEntry = not na(time(timeframe.period, entrySession, TZ))
+inFlat  = not na(time(timeframe.period, flatSession, TZ))
+newDay  = inOR and not inOR[1]
+atLevel = entryMode == "At Level (limit)"
+
+var float orHigh     = na
+var float orLow      = na
+var float orVolSum   = 0.0
+var int   orBars     = 0
+var bool  orReady    = false
+var int   tradesDay  = 0
+var float dayStartEq = strategy.equity
+
+if newDay
+    orHigh     := high
+    orLow      := low
+    orVolSum   := volume
+    orBars     := 1
+    orReady    := false
+    tradesDay  := 0
+    dayStartEq := strategy.equity
+else if inOR
+    orHigh   := math.max(orHigh, high)
+    orLow    := math.min(orLow, low)
+    orVolSum += volume
+    orBars   += 1
+
+if not inOR and inOR[1]
+    orReady := true
+
+orMid    = (orHigh + orLow) / 2
+orAvgVol = orBars > 0 ? orVolSum / orBars : na
+
+atrValue = ta.atr(atrLength)
+rsiValue = ta.rsi(close, rsiLength)
+vwapVal  = ta.vwap(hlc3, newDay)
+barSpan  = high - low
+closePos = barSpan > 0 ? (close - low) / barSpan : 0.5
+
+dayPnl    = strategy.equity - dayStartEq
+dayHalted = dayPnl <= -dailyLossUsd
+
+// Count a trade when a position opens (covers limit orders that fill on a later bar).
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    tradesDay += 1
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENTRY CONDITIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+var string pendingId  = ""
+var int    pendingBar = na
+
+longBreak  = close > orHigh and close[1] <= orHigh
+shortBreak = close < orLow and close[1] >= orLow
+
+longConfirm = (not useRsi or rsiValue >= rsiLong) and (not useCloseLoc or closePos >= closeLoc)
+     and (not useVolume or volume >= orAvgVol * volMult) and (not useVwap or close > vwapVal)
+shortConfirm = (not useRsi or rsiValue <= 100 - rsiLong) and (not useCloseLoc or 1 - closePos >= closeLoc)
+     and (not useVolume or volume >= orAvgVol * volMult) and (not useVwap or close < vwapVal)
+
+canTrade = orReady and inEntry and not dayHalted and tradesDay < maxTradesDay
+     and strategy.position_size == 0 and pendingId == ""
+
+longCondition  = allowLongs and canTrade and longBreak and longConfirm
+shortCondition = allowShorts and canTrade and shortBreak and shortConfirm
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STOP LOSS & TAKE PROFIT CALCULATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+longRef  = atLevel ? orHigh : close
+shortRef = atLevel ? orLow : close
+
+float longStop = switch stopMode
+    "Range Midpoint" => orMid
+    "Opposite Side"  => orLow
+    => longRef - atrValue * atrMult
+float shortStop = switch stopMode
+    "Range Midpoint" => orMid
+    "Opposite Side"  => orHigh
+    => shortRef + atrValue * atrMult
+longStop  := math.round_to_mintick(longStop)
+shortStop := math.round_to_mintick(shortStop)
+
+longRisk  = longRef - longStop
+shortRisk = shortStop - shortRef
+riskUsd(float pts) => pts * syminfo.pointvalue * strategy.default_entry_qty(close)
+longRiskOk  = longRisk > syminfo.mintick and riskUsd(longRisk) <= maxRiskUsd
+shortRiskOk = shortRisk > syminfo.mintick and riskUsd(shortRisk) <= maxRiskUsd
+
+var float stopPx   = na
+var float targetPx = na
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STRATEGY EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Drop a resting level order once it fills, expires or leaves the entry window.
+if pendingId != "" and (strategy.position_size != 0 or bar_index >= pendingBar + retestBars or not inEntry or dayHalted)
+    if strategy.position_size == 0
+        strategy.cancel(pendingId)
+    pendingId := ""
+
+goLong  = longCondition and longRiskOk
+goShort = shortCondition and shortRiskOk
+
+if goLong
+    stopPx   := longStop
+    targetPx := math.round_to_mintick(longRef + longRisk * rewardMult)
+    if atLevel
+        strategy.entry("Long", strategy.long, limit=orHigh)
+        pendingId  := "Long"
+        pendingBar := bar_index
+    else
+        strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=stopPx, limit=targetPx)
+
+if goShort
+    stopPx   := shortStop
+    targetPx := math.round_to_mintick(shortRef - shortRisk * rewardMult)
+    if atLevel
+        strategy.entry("Short", strategy.short, limit=orLow)
+        pendingId  := "Short"
+        pendingBar := bar_index
+    else
+        strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=stopPx, limit=targetPx)
+
+if strategy.position_size != 0 and (inFlat or dayHalted)
+    strategy.close_all(comment=dayHalted ? "Daily loss limit" : "Flat by close")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUAL ELEMENTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+showOR = orReady or inOR
+plot(showOR ? orHigh : na, "OR High", color.new(color.green, 0), 2, plot.style_linebr)
+plot(showOR ? orLow : na, "OR Low", color.new(color.red, 0), 2, plot.style_linebr)
+plot(showOR ? orMid : na, "OR Mid", color.new(color.gray, 30), 1, plot.style_linebr)
+plot(useVwap ? vwapVal : na, "VWAP", color.new(color.orange, 20), 1)
+plot(strategy.position_size != 0 or pendingId != "" ? stopPx : na, "Stop", color.red, 1, plot.style_linebr)
+plot(strategy.position_size != 0 or pendingId != "" ? targetPx : na, "Target", color.lime, 1, plot.style_linebr)
+bgcolor(inOR ? color.new(color.yellow, 90) : na, title="Opening Range")
+bgcolor(pendingId != "" ? color.new(color.blue, 92) : na, title="Level Order Resting")
+
+plotshape(goLong, "Confirmed Long Breakout", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(goShort, "Confirmed Short Breakout", shape.triangledown, location.abovebar, color.red, size=size.small)
+plotshape(longBreak and canTrade and not longConfirm, "Unconfirmed Long Break", shape.xcross, location.belowbar, color.new(color.gray, 40), size=size.tiny)
+plotshape(shortBreak and canTrade and not shortConfirm, "Unconfirmed Short Break", shape.xcross, location.abovebar, color.new(color.gray, 40), size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(goLong, "Confirmed ORB Long", "TruePath ORB v2: {{ticker}} confirmed long breakout, order at the range high")
+alertcondition(goShort, "Confirmed ORB Short", "TruePath ORB v2: {{ticker}} confirmed short breakout, order at the range low")
+alertcondition(dayHalted and not dayHalted[1], "Daily Loss Limit", "TruePath ORB v2: daily loss limit hit on {{ticker}}, trading halted")
