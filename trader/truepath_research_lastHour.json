@@ -1,0 +1,211 @@
+{
+  "split": "2025-11-27",
+  "costs": {
+    "commission_rt": 3.1,
+    "slippage_ticks_per_side": 2
+  },
+  "futures": {
+    "MNQ_H1": {
+      "in_sample": {
+        "trades": 246,
+        "net": -1645.6,
+        "avg": -6.69,
+        "t_stat": -0.6,
+        "profit_factor": 0.89,
+        "win_rate": 0.488,
+        "worst_trade": -833.6,
+        "worst_intrabar": -970.05,
+        "max_dd": 3020.9,
+        "profitable_months": "2/12"
+      },
+      "out_of_sample": {
+        "trades": 246,
+        "net": 4619.9,
+        "avg": 18.78,
+        "t_stat": 1.3,
+        "profit_factor": 1.34,
+        "win_rate": 0.524,
+        "worst_trade": -677.1,
+        "worst_intrabar": -800.55,
+        "max_dd": 1653.2,
+        "profitable_months": "9/12"
+      }
+    },
+    "MNQ_H2": {
+      "in_sample": {
+        "trades": 106,
+        "net": 597.4,
+        "avg": 5.64,
+        "t_stat": 0.28,
+        "profit_factor": 1.08,
+        "win_rate": 0.481,
+        "worst_trade": -555.6,
+        "worst_intrabar": -940.05,
+        "max_dd": 1899.0,
+        "profitable_months": "3/11"
+      },
+      "out_of_sample": {
+        "trades": 128,
+        "net": 1144.2,
+        "avg": 8.94,
+        "t_stat": 0.4,
+        "profit_factor": 1.14,
+        "win_rate": 0.508,
+        "worst_trade": -677.1,
+        "worst_intrabar": -800.55,
+        "max_dd": 2121.1,
+        "profitable_months": "8/12"
+      }
+    },
+    "MNQ_H3": {
+      "in_sample": {
+        "trades": 245,
+        "net": -1064.0,
+        "avg": -4.34,
+        "t_stat": -0.39,
+        "profit_factor": 0.93,
+        "win_rate": 0.461,
+        "worst_trade": -555.6,
+        "worst_intrabar": -703.55,
+        "max_dd": 3850.4,
+        "profitable_months": "5/12"
+      },
+      "out_of_sample": {
+        "trades": 246,
+        "net": -521.1,
+        "avg": -2.12,
+        "t_stat": -0.15,
+        "profit_factor": 0.97,
+        "win_rate": 0.484,
+        "worst_trade": -1447.1,
+        "worst_intrabar": -1485.05,
+        "max_dd": 3548.3,
+        "profitable_months": "7/12"
+      }
+    },
+    "MES_H1": {
+      "in_sample": {
+        "trades": 246,
+        "net": -1057.6,
+        "avg": -4.3,
+        "t_stat": -0.67,
+        "profit_factor": 0.88,
+        "win_rate": 0.492,
+        "worst_trade": -524.35,
+        "worst_intrabar": -639.05,
+        "max_dd": 1771.45,
+        "profitable_months": "3/12"
+      },
+      "out_of_sample": {
+        "trades": 245,
+        "net": -1614.5,
+        "avg": -6.59,
+        "t_stat": -1.02,
+        "profit_factor": 0.81,
+        "win_rate": 0.465,
+        "worst_trade": -419.35,
+        "worst_intrabar": -499.05,
+        "max_dd": 1886.9,
+        "profitable_months": "4/12"
+      }
+    },
+    "MES_H2": {
+      "in_sample": {
+        "trades": 112,
+        "net": -1228.45,
+        "avg": -10.97,
+        "t_stat": -1.01,
+        "profit_factor": 0.76,
+        "win_rate": 0.464,
+        "worst_trade": -288.1,
+        "worst_intrabar": -639.05,
+        "max_dd": 1434.8,
+        "profitable_months": "4/11"
+      },
+      "out_of_sample": {
+        "trades": 127,
+        "net": -567.45,
+        "avg": -4.47,
+        "t_stat": -0.41,
+        "profit_factor": 0.88,
+        "win_rate": 0.441,
+        "worst_trade": -419.35,
+        "worst_intrabar": -499.05,
+        "max_dd": 1230.2,
+        "profitable_months": "4/12"
+      }
+    },
+    "MES_H3": {
+      "in_sample": {
+        "trades": 246,
+        "net": -1252.6,
+        "avg": -5.09,
+        "t_stat": -0.79,
+        "profit_factor": 0.86,
+        "win_rate": 0.443,
+        "worst_trade": -336.85,
+        "worst_intrabar": -402.8,
+        "max_dd": 2771.25,
+        "profitable_months": "3/12"
+      },
+      "out_of_sample": {
+        "trades": 245,
+        "net": -3922.0,
+        "avg": -16.01,
+        "t_stat": -2.79,
+        "profit_factor": 0.57,
+        "win_rate": 0.424,
+        "worst_trade": -631.85,
+        "worst_intrabar": -650.3,
+        "max_dd": 3988.4,
+        "profitable_months": "2/12"
+      }
+    }
+  },
+  "etf_gross_check": {
+    "SPY": {
+      "H1_in_sample": {
+        "days": 246,
+        "avg_bps": -0.7,
+        "t_stat": -0.42
+      },
+      "H1_out_of_sample": {
+        "days": 246,
+        "avg_bps": -1.83,
+        "t_stat": -1.78
+      },
+      "H3_in_sample": {
+        "days": 246,
+        "avg_bps": -1.58,
+        "t_stat": -0.96
+      },
+      "H3_out_of_sample": {
+        "days": 246,
+        "avg_bps": -2.34,
+        "t_stat": -2.28
+      }
+    },
+    "QQQ": {
+      "H1_in_sample": {
+        "days": 246,
+        "avg_bps": -1.01,
+        "t_stat": -0.51
+      },
+      "H1_out_of_sample": {
+        "days": 246,
+        "avg_bps": -1.33,
+        "t_stat": -0.89
+      },
+      "H3_in_sample": {
+        "days": 246,
+        "avg_bps": -3.38,
+        "t_stat": -1.7
+      },
+      "H3_out_of_sample": {
+        "days": 246,
+        "avg_bps": -1.16,
+        "t_stat": -0.78
+      }
+    }
+  }
+}

@@ -88,9 +88,11 @@ def load_csv(path: str) -> pd.DataFrame:
 
 def normalize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.rename(columns=str.lower)[["open", "high", "low", "close", "volume"]].copy()
-    idx = df.index if isinstance(df.index, pd.DatetimeIndex) else pd.to_datetime(df.index, utc=True)
-    idx = idx.tz_localize("UTC") if idx.tz is None else idx  # naive timestamps are read as UTC
+    idx = df.index if isinstance(df.index, pd.DatetimeIndex) else pd.to_datetime(df.index)
+    # yfinance (via OpenBB) returns naive timestamps in exchange time, i.e. New York for CME futures.
+    idx = idx.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT") if idx.tz is None else idx
     df.index = idx.tz_convert("America/New_York")
+    df = df[df.index.notna()]  # the repeated 1-2 a.m. hour on the DST change has no single New York time
     return df.sort_index().dropna(subset=["open", "high", "low", "close"])
 
 
