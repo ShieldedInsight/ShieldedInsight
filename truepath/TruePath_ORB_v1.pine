@@ -1,0 +1,206 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
+// © MoMoney8
+// @version=6
+
+strategy("TruePath_ORB_v1",
+     overlay=true,
+     initial_capital=50000,
+     default_qty_type=strategy.fixed,
+     default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract,
+     commission_value=1.55,  // $1.55 per side; TradingView charges it on entry AND exit = $3.10 round trip
+     slippage=0,
+     calc_on_every_tick=false,
+     process_orders_on_close=true,
+     max_bars_back=500)
+
+// Opening-range breakout for index futures (ES, NQ, MES, MNQ) on a 5-minute chart.
+// Same rules as the trader-entry / trader-exit skills: 15-minute opening range from 9:30 ET,
+// entry on the first bar that CLOSES beyond the range, stop at the range midpoint, target 2R,
+// flat by 15:55 ET. Adds the short side, filters and prop-firm guards.
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+group_or = "══════ Opening Range ══════"
+orSession    = input.session("0930-0945", "Opening Range (ET)", group=group_or)
+entrySession = input.session("0945-1130", "Entry Window (ET)", group=group_or)
+flatSession  = input.session("1555-1600", "Flatten Window (ET)", group=group_or)
+minRangePts  = input.float(0.0, "Min Range Width (points, 0 = off)", minval=0, group=group_or)
+maxRangePts  = input.float(0.0, "Max Range Width (points, 0 = off)", minval=0, group=group_or)
+
+group_entry = "══════ Entry Settings ══════"
+allowLongs     = input.bool(true, "Allow Longs", group=group_entry)
+allowShorts    = input.bool(true, "Allow Shorts", group=group_entry)
+firstBreakOnly = input.bool(true, "Only the First Breakout of the Day", group=group_entry)
+maxTradesDay   = input.int(2, "Max Trades per Day", minval=1, group=group_entry)
+
+group_ind = "══════ Filters ══════"
+useVwapFilter = input.bool(true, "Require Close on the Breakout Side of VWAP", group=group_ind)
+useEmaFilter  = input.bool(false, "Require EMA Trend Agreement", group=group_ind)
+emaLength     = input.int(50, "EMA Length", minval=1, group=group_ind)
+useVolFilter  = input.bool(false, "Require Volume Above Average", group=group_ind)
+volLength     = input.int(20, "Volume SMA Length", minval=1, group=group_ind)
+volMult       = input.float(1.2, "Volume Multiple", minval=0.1, step=0.1, group=group_ind)
+
+group_exit = "══════ Exit Settings ══════"
+stopMode     = input.string("Range Midpoint", "Stop Placement",
+     options=["Range Midpoint", "Opposite Side", "ATR"], group=group_exit)
+atrLength    = input.int(14, "ATR Length", minval=1, group=group_exit)
+atrMult      = input.float(1.5, "ATR Multiplier", minval=0.1, step=0.1, group=group_exit)
+rewardMult   = input.float(2.0, "Take Profit (Risk Multiple)", minval=0.5, step=0.1, group=group_exit)
+useBreakeven = input.bool(false, "Move Stop to Breakeven at 1R", group=group_exit)
+
+group_risk = "══════ Risk Management (Prop Firm) ══════"
+maxRiskUsd   = input.float(500.0, "Max Loss per Trade ($, skip if wider)", minval=1, group=group_risk)
+dailyLossUsd = input.float(1000.0, "Daily Loss Limit ($, halts trading)", minval=1, group=group_risk)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+const string TZ = "America/New_York"
+
+inOR    = not na(time(timeframe.period, orSession, TZ))
+inEntry = not na(time(timeframe.period, entrySession, TZ))
+inFlat  = not na(time(timeframe.period, flatSession, TZ))
+newDay  = inOR and not inOR[1]
+
+var float orHigh     = na
+var float orLow      = na
+var bool  orReady    = false
+var int   tradesDay  = 0
+var bool  brokeOut   = false
+var float dayStartEq = strategy.equity
+
+if newDay
+    orHigh     := high
+    orLow      := low
+    orReady    := false
+    tradesDay  := 0
+    brokeOut   := false
+    dayStartEq := strategy.equity
+else if inOR
+    orHigh := math.max(orHigh, high)
+    orLow  := math.min(orLow, low)
+
+if not inOR and inOR[1]
+    orReady := true
+
+orMid   = (orHigh + orLow) / 2
+orWidth = orHigh - orLow
+widthOk = (minRangePts == 0 or orWidth >= minRangePts) and (maxRangePts == 0 or orWidth <= maxRangePts)
+
+atrValue = ta.atr(atrLength)
+emaValue = ta.ema(close, emaLength)
+vwapVal  = ta.vwap(hlc3, newDay)
+volOk    = not useVolFilter or volume > ta.sma(volume, volLength) * volMult
+
+// Prop-firm guard: realized + open P&L for the day against the daily loss limit.
+dayPnl     = strategy.equity - dayStartEq
+dayHalted  = dayPnl <= -dailyLossUsd
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENTRY CONDITIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+canTrade = orReady and inEntry and widthOk and not dayHalted and tradesDay < maxTradesDay
+     and strategy.position_size == 0 and (not firstBreakOnly or not brokeOut)
+
+longBreak  = close > orHigh and close[1] <= orHigh
+shortBreak = close < orLow and close[1] >= orLow
+
+longCondition  = allowLongs and canTrade and longBreak and volOk
+     and (not useVwapFilter or close > vwapVal) and (not useEmaFilter or close > emaValue)
+shortCondition = allowShorts and canTrade and shortBreak and volOk
+     and (not useVwapFilter or close < vwapVal) and (not useEmaFilter or close < emaValue)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STOP LOSS & TAKE PROFIT CALCULATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+longStop  = switch stopMode
+    "Range Midpoint" => orMid
+    "Opposite Side"  => orLow
+    => close - atrValue * atrMult
+shortStop = switch stopMode
+    "Range Midpoint" => orMid
+    "Opposite Side"  => orHigh
+    => close + atrValue * atrMult
+
+longStop  := math.round_to_mintick(longStop)
+shortStop := math.round_to_mintick(shortStop)
+longRisk  = close - longStop
+shortRisk = shortStop - close
+
+riskUsd(float pts) => pts * syminfo.pointvalue * strategy.default_entry_qty(close)
+
+longRiskOk  = longRisk > syminfo.mintick and riskUsd(longRisk) <= maxRiskUsd
+shortRiskOk = shortRisk > syminfo.mintick and riskUsd(shortRisk) <= maxRiskUsd
+
+var float entryPx  = na
+var float stopPx   = na
+var float targetPx = na
+var float riskPts  = na
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STRATEGY EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// A breakout bar counts as "the" breakout even when a filter or the risk cap skips it.
+if canTrade and (longBreak or shortBreak)
+    brokeOut := true
+
+if longCondition and longRiskOk
+    entryPx  := close
+    stopPx   := longStop
+    riskPts  := longRisk
+    targetPx := math.round_to_mintick(close + longRisk * rewardMult)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=stopPx, limit=targetPx)
+    tradesDay += 1
+
+if shortCondition and shortRiskOk
+    entryPx  := close
+    stopPx   := shortStop
+    riskPts  := shortRisk
+    targetPx := math.round_to_mintick(close - shortRisk * rewardMult)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=stopPx, limit=targetPx)
+    tradesDay += 1
+
+if useBreakeven and strategy.position_size > 0 and high >= entryPx + riskPts and stopPx < entryPx
+    stopPx := entryPx
+    strategy.exit("Long Exit", "Long", stop=stopPx, limit=targetPx)
+if useBreakeven and strategy.position_size < 0 and low <= entryPx - riskPts and stopPx > entryPx
+    stopPx := entryPx
+    strategy.exit("Short Exit", "Short", stop=stopPx, limit=targetPx)
+
+if strategy.position_size != 0 and (inFlat or dayHalted)
+    strategy.close_all(comment=dayHalted ? "Daily loss limit" : "Flat by close")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUAL ELEMENTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+showOR = orReady or inOR
+plot(showOR ? orHigh : na, "OR High", color.new(color.green, 0), 2, plot.style_linebr)
+plot(showOR ? orLow : na, "OR Low", color.new(color.red, 0), 2, plot.style_linebr)
+plot(showOR ? orMid : na, "OR Mid", color.new(color.gray, 30), 1, plot.style_linebr)
+plot(useVwapFilter ? vwapVal : na, "VWAP", color.new(color.orange, 20), 1)
+plot(useEmaFilter ? emaValue : na, "EMA", color.new(color.blue, 20), 1)
+plot(strategy.position_size != 0 ? stopPx : na, "Stop", color.red, 1, plot.style_linebr)
+plot(strategy.position_size != 0 ? targetPx : na, "Target", color.lime, 1, plot.style_linebr)
+bgcolor(inOR ? color.new(color.yellow, 90) : na, title="Opening Range")
+
+plotshape(longCondition and longRiskOk, "Long Signal", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition and shortRiskOk, "Short Signal", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(longCondition and longRiskOk, "ORB Long", "TruePath ORB long: {{ticker}} closed above the opening range at {{close}}")
+alertcondition(shortCondition and shortRiskOk, "ORB Short", "TruePath ORB short: {{ticker}} closed below the opening range at {{close}}")
+alertcondition(dayHalted and not dayHalted[1], "Daily Loss Limit", "TruePath ORB: daily loss limit hit on {{ticker}}, trading halted")
