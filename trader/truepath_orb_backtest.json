@@ -1,0 +1,1443 @@
+{
+  "created_by": "truepath-orb-backtest",
+  "strategy": "TruePath_ORB_v1",
+  "created_at": "2026-11-25T20:29:05Z",
+  "source": "openbb/yfinance",
+  "interval": "5m",
+  "account": 50000,
+  "eod_limit": 2000.0,
+  "commission_round_trip": 3.1,
+  "assumptions": [
+    "1 contract",
+    "entry at signal-bar close",
+    "stop wins if a bar hits stop and target",
+    "no slippage",
+    "flat by 15:55 ET"
+  ],
+  "results": {
+    "ES=F": {
+      "bars": 11724,
+      "first": "2026-09-27 20:00:00-04:00",
+      "last": "2026-11-25 10:15:00-05:00",
+      "defaults": {
+        "params": {
+          "entry_end": "11:30",
+          "stop_mode": "mid",
+          "reward": 2.0,
+          "vwap_filter": true,
+          "first_break_only": true,
+          "max_trades": 2,
+          "atr_mult": 1.5,
+          "max_risk_usd": 500.0,
+          "daily_loss_usd": 1000.0,
+          "allow_longs": true,
+          "allow_shorts": true
+        },
+        "metrics": {
+          "trades": 30,
+          "days_traded": 30,
+          "net_pnl": -5005.5,
+          "profit_factor": 0.3,
+          "win_rate": 0.133,
+          "avg_r": -0.6,
+          "avg_trade": -166.85,
+          "max_drawdown": 5449.3,
+          "worst_day": -453.1,
+          "best_day": 846.9,
+          "days_over_eod_limit": 0,
+          "best_day_share_of_profit": null,
+          "prop_score": {
+            "total": 27,
+            "verdict": "fails PF > 1.5",
+            "edge": 0,
+            "daily_loss": 19.3,
+            "drawdown": 0,
+            "consistency": 0,
+            "sample": 7.5
+          }
+        }
+      },
+      "tuning": {
+        "split_date": "2026-11-05",
+        "in_sample_days": 34,
+        "out_of_sample_days": 18,
+        "combos_tested": 144,
+        "top": [
+          {
+            "params": {
+              "entry_end": "11:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": true,
+              "first_break_only": true,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 23,
+              "days_traded": 23,
+              "net_pnl": -1633.8,
+              "profit_factor": 0.6,
+              "win_rate": 0.261,
+              "avg_r": -0.35,
+              "avg_trade": -71.03,
+              "max_drawdown": 1746.6,
+              "worst_day": -440.6,
+              "best_day": 659.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 28,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 19.5,
+                "drawdown": 2.5,
+                "consistency": 0,
+                "sample": 5.8
+              }
+            },
+            "out_of_sample": {
+              "trades": 7,
+              "days_traded": 7,
+              "net_pnl": -1459.2,
+              "profit_factor": 0.3,
+              "win_rate": 0.143,
+              "avg_r": -0.64,
+              "avg_trade": -208.46,
+              "max_drawdown": 1690.5,
+              "worst_day": -453.1,
+              "best_day": 634.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 24,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 19.3,
+                "drawdown": 3.1,
+                "consistency": 0,
+                "sample": 1.8
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "13:00",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": true,
+              "first_break_only": true,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 23,
+              "days_traded": 23,
+              "net_pnl": -1633.8,
+              "profit_factor": 0.6,
+              "win_rate": 0.261,
+              "avg_r": -0.35,
+              "avg_trade": -71.03,
+              "max_drawdown": 1746.6,
+              "worst_day": -440.6,
+              "best_day": 659.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 28,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 19.5,
+                "drawdown": 2.5,
+                "consistency": 0,
+                "sample": 5.8
+              }
+            },
+            "out_of_sample": {
+              "trades": 7,
+              "days_traded": 7,
+              "net_pnl": -1459.2,
+              "profit_factor": 0.3,
+              "win_rate": 0.143,
+              "avg_r": -0.64,
+              "avg_trade": -208.46,
+              "max_drawdown": 1690.5,
+              "worst_day": -453.1,
+              "best_day": 634.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 24,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 19.3,
+                "drawdown": 3.1,
+                "consistency": 0,
+                "sample": 1.8
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "11:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": false,
+              "first_break_only": true,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 23,
+              "days_traded": 23,
+              "net_pnl": -1633.8,
+              "profit_factor": 0.6,
+              "win_rate": 0.261,
+              "avg_r": -0.35,
+              "avg_trade": -71.03,
+              "max_drawdown": 1746.6,
+              "worst_day": -440.6,
+              "best_day": 659.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 28,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 19.5,
+                "drawdown": 2.5,
+                "consistency": 0,
+                "sample": 5.8
+              }
+            },
+            "out_of_sample": {
+              "trades": 7,
+              "days_traded": 7,
+              "net_pnl": -1459.2,
+              "profit_factor": 0.3,
+              "win_rate": 0.143,
+              "avg_r": -0.64,
+              "avg_trade": -208.46,
+              "max_drawdown": 1690.5,
+              "worst_day": -453.1,
+              "best_day": 634.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 24,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 19.3,
+                "drawdown": 3.1,
+                "consistency": 0,
+                "sample": 1.8
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "13:00",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": false,
+              "first_break_only": true,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 23,
+              "days_traded": 23,
+              "net_pnl": -1633.8,
+              "profit_factor": 0.6,
+              "win_rate": 0.261,
+              "avg_r": -0.35,
+              "avg_trade": -71.03,
+              "max_drawdown": 1746.6,
+              "worst_day": -440.6,
+              "best_day": 659.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 28,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 19.5,
+                "drawdown": 2.5,
+                "consistency": 0,
+                "sample": 5.8
+              }
+            },
+            "out_of_sample": {
+              "trades": 7,
+              "days_traded": 7,
+              "net_pnl": -1459.2,
+              "profit_factor": 0.3,
+              "win_rate": 0.143,
+              "avg_r": -0.64,
+              "avg_trade": -208.46,
+              "max_drawdown": 1690.5,
+              "worst_day": -453.1,
+              "best_day": 634.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 24,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 19.3,
+                "drawdown": 3.1,
+                "consistency": 0,
+                "sample": 1.8
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "11:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": false,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 41,
+              "days_traded": 24,
+              "net_pnl": -439.6,
+              "profit_factor": 0.93,
+              "win_rate": 0.366,
+              "avg_r": -0.09,
+              "avg_trade": -10.72,
+              "max_drawdown": 2471.2,
+              "worst_day": -631.2,
+              "best_day": 659.4,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 27,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 17.1,
+                "drawdown": 0,
+                "consistency": 0,
+                "sample": 10
+              }
+            },
+            "out_of_sample": {
+              "trades": 13,
+              "days_traded": 7,
+              "net_pnl": -1440.3,
+              "profit_factor": 0.55,
+              "win_rate": 0.308,
+              "avg_r": -0.23,
+              "avg_trade": -110.79,
+              "max_drawdown": 1634.2,
+              "worst_day": -831.2,
+              "best_day": 993.8,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 22,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 14.6,
+                "drawdown": 3.7,
+                "consistency": 0,
+                "sample": 3.2
+              }
+            }
+          }
+        ]
+      }
+    },
+    "NQ=F": {
+      "bars": 11720,
+      "first": "2026-09-27 20:00:00-04:00",
+      "last": "2026-11-25 10:15:00-05:00",
+      "defaults": {
+        "params": {
+          "entry_end": "11:30",
+          "stop_mode": "mid",
+          "reward": 2.0,
+          "vwap_filter": true,
+          "first_break_only": true,
+          "max_trades": 2,
+          "atr_mult": 1.5,
+          "max_risk_usd": 500.0,
+          "daily_loss_usd": 1000.0,
+          "allow_longs": true,
+          "allow_shorts": true
+        },
+        "metrics": {
+          "trades": 8,
+          "days_traded": 8,
+          "net_pnl": 305.2,
+          "profit_factor": 1.16,
+          "win_rate": 0.375,
+          "avg_r": 0.12,
+          "avg_trade": 38.15,
+          "max_drawdown": 1204.3,
+          "worst_day": -493.1,
+          "best_day": 956.9,
+          "days_over_eod_limit": 0,
+          "best_day_share_of_profit": 3.14,
+          "prop_score": {
+            "total": 34,
+            "verdict": "fails PF > 1.5",
+            "edge": 4.8,
+            "daily_loss": 18.8,
+            "drawdown": 8.0,
+            "consistency": 0,
+            "sample": 2.0
+          }
+        }
+      },
+      "tuning": {
+        "split_date": "2026-11-05",
+        "in_sample_days": 34,
+        "out_of_sample_days": 18,
+        "combos_tested": 24,
+        "top": [
+          {
+            "params": {
+              "entry_end": "10:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": true,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 12,
+              "days_traded": 8,
+              "net_pnl": 332.8,
+              "profit_factor": 1.13,
+              "win_rate": 0.417,
+              "avg_r": 0.04,
+              "avg_trade": 27.73,
+              "max_drawdown": 870.5,
+              "worst_day": -631.2,
+              "best_day": 716.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": 2.15,
+              "prop_score": {
+                "total": 35,
+                "verdict": "fails PF > 1.5",
+                "edge": 3.9,
+                "daily_loss": 17.1,
+                "drawdown": 11.3,
+                "consistency": 0,
+                "sample": 3.0
+              }
+            },
+            "out_of_sample": {
+              "trades": 1,
+              "days_traded": 1,
+              "net_pnl": -378.1,
+              "profit_factor": 0.0,
+              "win_rate": 0.0,
+              "avg_r": -1.0,
+              "avg_trade": -378.1,
+              "max_drawdown": 378.1,
+              "worst_day": -378.1,
+              "best_day": -378.1,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 37,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 20.3,
+                "drawdown": 16.2,
+                "consistency": 0,
+                "sample": 0.2
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "10:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": false,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 12,
+              "days_traded": 8,
+              "net_pnl": 332.8,
+              "profit_factor": 1.13,
+              "win_rate": 0.417,
+              "avg_r": 0.04,
+              "avg_trade": 27.73,
+              "max_drawdown": 870.5,
+              "worst_day": -631.2,
+              "best_day": 716.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": 2.15,
+              "prop_score": {
+                "total": 35,
+                "verdict": "fails PF > 1.5",
+                "edge": 3.9,
+                "daily_loss": 17.1,
+                "drawdown": 11.3,
+                "consistency": 0,
+                "sample": 3.0
+              }
+            },
+            "out_of_sample": {
+              "trades": 1,
+              "days_traded": 1,
+              "net_pnl": -378.1,
+              "profit_factor": 0.0,
+              "win_rate": 0.0,
+              "avg_r": -1.0,
+              "avg_trade": -378.1,
+              "max_drawdown": 378.1,
+              "worst_day": -378.1,
+              "best_day": -378.1,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 37,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 20.3,
+                "drawdown": 16.2,
+                "consistency": 0,
+                "sample": 0.2
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "10:30",
+              "stop_mode": "mid",
+              "reward": 2.0,
+              "vwap_filter": true,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 11,
+              "days_traded": 8,
+              "net_pnl": 295.9,
+              "profit_factor": 1.11,
+              "win_rate": 0.364,
+              "avg_r": 0.09,
+              "avg_trade": 26.9,
+              "max_drawdown": 856.2,
+              "worst_day": -631.2,
+              "best_day": 956.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": 3.23,
+              "prop_score": {
+                "total": 35,
+                "verdict": "fails PF > 1.5",
+                "edge": 3.3,
+                "daily_loss": 17.1,
+                "drawdown": 11.4,
+                "consistency": 0,
+                "sample": 2.8
+              }
+            },
+            "out_of_sample": {
+              "trades": 1,
+              "days_traded": 1,
+              "net_pnl": -378.1,
+              "profit_factor": 0.0,
+              "win_rate": 0.0,
+              "avg_r": -1.0,
+              "avg_trade": -378.1,
+              "max_drawdown": 378.1,
+              "worst_day": -378.1,
+              "best_day": -378.1,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 37,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 20.3,
+                "drawdown": 16.2,
+                "consistency": 0,
+                "sample": 0.2
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "10:30",
+              "stop_mode": "mid",
+              "reward": 2.0,
+              "vwap_filter": false,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 11,
+              "days_traded": 8,
+              "net_pnl": 295.9,
+              "profit_factor": 1.11,
+              "win_rate": 0.364,
+              "avg_r": 0.09,
+              "avg_trade": 26.9,
+              "max_drawdown": 856.2,
+              "worst_day": -631.2,
+              "best_day": 956.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": 3.23,
+              "prop_score": {
+                "total": 35,
+                "verdict": "fails PF > 1.5",
+                "edge": 3.3,
+                "daily_loss": 17.1,
+                "drawdown": 11.4,
+                "consistency": 0,
+                "sample": 2.8
+              }
+            },
+            "out_of_sample": {
+              "trades": 1,
+              "days_traded": 1,
+              "net_pnl": -378.1,
+              "profit_factor": 0.0,
+              "win_rate": 0.0,
+              "avg_r": -1.0,
+              "avg_trade": -378.1,
+              "max_drawdown": 378.1,
+              "worst_day": -378.1,
+              "best_day": -378.1,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 37,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 20.3,
+                "drawdown": 16.2,
+                "consistency": 0,
+                "sample": 0.2
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "10:30",
+              "stop_mode": "mid",
+              "reward": 2.5,
+              "vwap_filter": true,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 10,
+              "days_traded": 8,
+              "net_pnl": 439.0,
+              "profit_factor": 1.17,
+              "win_rate": 0.3,
+              "avg_r": 0.05,
+              "avg_trade": 43.9,
+              "max_drawdown": 1194.3,
+              "worst_day": -631.2,
+              "best_day": 1196.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": 2.73,
+              "prop_score": {
+                "total": 33,
+                "verdict": "fails PF > 1.5",
+                "edge": 5.1,
+                "daily_loss": 17.1,
+                "drawdown": 8.1,
+                "consistency": 0,
+                "sample": 2.5
+              }
+            },
+            "out_of_sample": {
+              "trades": 1,
+              "days_traded": 1,
+              "net_pnl": -378.1,
+              "profit_factor": 0.0,
+              "win_rate": 0.0,
+              "avg_r": -1.0,
+              "avg_trade": -378.1,
+              "max_drawdown": 378.1,
+              "worst_day": -378.1,
+              "best_day": -378.1,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 37,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 20.3,
+                "drawdown": 16.2,
+                "consistency": 0,
+                "sample": 0.2
+              }
+            }
+          }
+        ]
+      }
+    },
+    "MES=F": {
+      "bars": 11719,
+      "first": "2026-09-27 20:00:00-04:00",
+      "last": "2026-11-25 10:15:00-05:00",
+      "defaults": {
+        "params": {
+          "entry_end": "11:30",
+          "stop_mode": "mid",
+          "reward": 2.0,
+          "vwap_filter": true,
+          "first_break_only": true,
+          "max_trades": 2,
+          "atr_mult": 1.5,
+          "max_risk_usd": 500.0,
+          "daily_loss_usd": 1000.0,
+          "allow_longs": true,
+          "allow_shorts": true
+        },
+        "metrics": {
+          "trades": 41,
+          "days_traded": 41,
+          "net_pnl": -472.1,
+          "profit_factor": 0.63,
+          "win_rate": 0.22,
+          "avg_r": -0.37,
+          "avg_trade": -11.51,
+          "max_drawdown": 659.75,
+          "worst_day": -125.6,
+          "best_day": 221.9,
+          "days_over_eod_limit": 0,
+          "best_day_share_of_profit": null,
+          "prop_score": {
+            "total": 47,
+            "verdict": "fails PF > 1.5",
+            "edge": 0,
+            "daily_loss": 23.4,
+            "drawdown": 13.4,
+            "consistency": 0,
+            "sample": 10
+          }
+        }
+      },
+      "tuning": {
+        "split_date": "2026-11-05",
+        "in_sample_days": 34,
+        "out_of_sample_days": 18,
+        "combos_tested": 144,
+        "top": [
+          {
+            "params": {
+              "entry_end": "10:30",
+              "stop_mode": "mid",
+              "reward": 2.5,
+              "vwap_filter": true,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 32,
+              "days_traded": 26,
+              "net_pnl": -52.95,
+              "profit_factor": 0.93,
+              "win_rate": 0.281,
+              "avg_r": -0.06,
+              "avg_trade": -1.65,
+              "max_drawdown": 259.1,
+              "worst_day": -66.85,
+              "best_day": 140.65,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 50,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 24.2,
+                "drawdown": 17.4,
+                "consistency": 0,
+                "sample": 8.0
+              }
+            },
+            "out_of_sample": {
+              "trades": 16,
+              "days_traded": 12,
+              "net_pnl": 16.65,
+              "profit_factor": 1.02,
+              "win_rate": 0.25,
+              "avg_r": -0.12,
+              "avg_trade": 1.04,
+              "max_drawdown": 328.5,
+              "worst_day": -106.85,
+              "best_day": 278.15,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": 16.71,
+              "prop_score": {
+                "total": 45,
+                "verdict": "fails PF > 1.5",
+                "edge": 0.6,
+                "daily_loss": 23.7,
+                "drawdown": 16.7,
+                "consistency": 0,
+                "sample": 4.0
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "10:30",
+              "stop_mode": "mid",
+              "reward": 2.5,
+              "vwap_filter": false,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 32,
+              "days_traded": 26,
+              "net_pnl": -52.95,
+              "profit_factor": 0.93,
+              "win_rate": 0.281,
+              "avg_r": -0.06,
+              "avg_trade": -1.65,
+              "max_drawdown": 259.1,
+              "worst_day": -66.85,
+              "best_day": 140.65,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 50,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 24.2,
+                "drawdown": 17.4,
+                "consistency": 0,
+                "sample": 8.0
+              }
+            },
+            "out_of_sample": {
+              "trades": 16,
+              "days_traded": 12,
+              "net_pnl": 16.65,
+              "profit_factor": 1.02,
+              "win_rate": 0.25,
+              "avg_r": -0.12,
+              "avg_trade": 1.04,
+              "max_drawdown": 328.5,
+              "worst_day": -106.85,
+              "best_day": 278.15,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": 16.71,
+              "prop_score": {
+                "total": 45,
+                "verdict": "fails PF > 1.5",
+                "edge": 0.6,
+                "daily_loss": 23.7,
+                "drawdown": 16.7,
+                "consistency": 0,
+                "sample": 4.0
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "11:30",
+              "stop_mode": "mid",
+              "reward": 2.5,
+              "vwap_filter": true,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 46,
+              "days_traded": 28,
+              "net_pnl": -122.6,
+              "profit_factor": 0.88,
+              "win_rate": 0.283,
+              "avg_r": -0.07,
+              "avg_trade": -2.67,
+              "max_drawdown": 331.05,
+              "worst_day": -113.7,
+              "best_day": 140.65,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 50,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 23.6,
+                "drawdown": 16.7,
+                "consistency": 0,
+                "sample": 10
+              }
+            },
+            "out_of_sample": {
+              "trades": 22,
+              "days_traded": 13,
+              "net_pnl": 144.3,
+              "profit_factor": 1.16,
+              "win_rate": 0.273,
+              "avg_r": -0.04,
+              "avg_trade": 6.56,
+              "max_drawdown": 297.35,
+              "worst_day": -127.45,
+              "best_day": 278.15,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": 1.93,
+              "prop_score": {
+                "total": 51,
+                "verdict": "fails PF > 1.5",
+                "edge": 4.8,
+                "daily_loss": 23.4,
+                "drawdown": 17.0,
+                "consistency": 0,
+                "sample": 5.5
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "11:30",
+              "stop_mode": "mid",
+              "reward": 2.5,
+              "vwap_filter": false,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 46,
+              "days_traded": 28,
+              "net_pnl": -122.6,
+              "profit_factor": 0.88,
+              "win_rate": 0.283,
+              "avg_r": -0.07,
+              "avg_trade": -2.67,
+              "max_drawdown": 331.05,
+              "worst_day": -113.7,
+              "best_day": 140.65,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 50,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 23.6,
+                "drawdown": 16.7,
+                "consistency": 0,
+                "sample": 10
+              }
+            },
+            "out_of_sample": {
+              "trades": 22,
+              "days_traded": 13,
+              "net_pnl": -105.7,
+              "profit_factor": 0.89,
+              "win_rate": 0.227,
+              "avg_r": -0.2,
+              "avg_trade": -4.8,
+              "max_drawdown": 425.4,
+              "worst_day": -127.45,
+              "best_day": 278.15,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 45,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 23.4,
+                "drawdown": 15.7,
+                "consistency": 0,
+                "sample": 5.5
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "11:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": true,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 47,
+              "days_traded": 28,
+              "net_pnl": -153.2,
+              "profit_factor": 0.83,
+              "win_rate": 0.383,
+              "avg_r": -0.08,
+              "avg_trade": -3.26,
+              "max_drawdown": 350.6,
+              "worst_day": -113.7,
+              "best_day": 83.15,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 50,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 23.6,
+                "drawdown": 16.5,
+                "consistency": 0,
+                "sample": 10
+              }
+            },
+            "out_of_sample": {
+              "trades": 22,
+              "days_traded": 13,
+              "net_pnl": -278.2,
+              "profit_factor": 0.68,
+              "win_rate": 0.318,
+              "avg_r": -0.2,
+              "avg_trade": -12.65,
+              "max_drawdown": 306.6,
+              "worst_day": -127.45,
+              "best_day": 165.65,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 46,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 23.4,
+                "drawdown": 16.9,
+                "consistency": 0,
+                "sample": 5.5
+              }
+            }
+          }
+        ]
+      }
+    },
+    "MNQ=F": {
+      "bars": 11721,
+      "first": "2026-09-27 20:00:00-04:00",
+      "last": "2026-11-25 10:20:00-05:00",
+      "defaults": {
+        "params": {
+          "entry_end": "11:30",
+          "stop_mode": "mid",
+          "reward": 2.0,
+          "vwap_filter": true,
+          "first_break_only": true,
+          "max_trades": 2,
+          "atr_mult": 1.5,
+          "max_risk_usd": 500.0,
+          "daily_loss_usd": 1000.0,
+          "allow_longs": true,
+          "allow_shorts": true
+        },
+        "metrics": {
+          "trades": 43,
+          "days_traded": 43,
+          "net_pnl": -1962.3,
+          "profit_factor": 0.43,
+          "win_rate": 0.209,
+          "avg_r": -0.37,
+          "avg_trade": -45.63,
+          "max_drawdown": 2184.4,
+          "worst_day": -255.6,
+          "best_day": 241.9,
+          "days_over_eod_limit": 0,
+          "best_day_share_of_profit": null,
+          "prop_score": {
+            "total": 32,
+            "verdict": "fails PF > 1.5",
+            "edge": 0,
+            "daily_loss": 21.8,
+            "drawdown": 0,
+            "consistency": 0,
+            "sample": 10
+          }
+        }
+      },
+      "tuning": {
+        "split_date": "2026-11-05",
+        "in_sample_days": 34,
+        "out_of_sample_days": 18,
+        "combos_tested": 144,
+        "top": [
+          {
+            "params": {
+              "entry_end": "11:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": true,
+              "first_break_only": true,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 28,
+              "days_traded": 28,
+              "net_pnl": -166.3,
+              "profit_factor": 0.88,
+              "win_rate": 0.393,
+              "avg_r": -0.02,
+              "avg_trade": -5.94,
+              "max_drawdown": 408.3,
+              "worst_day": -186.1,
+              "best_day": 180.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 46,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 22.7,
+                "drawdown": 15.9,
+                "consistency": 0,
+                "sample": 7.0
+              }
+            },
+            "out_of_sample": {
+              "trades": 15,
+              "days_traded": 15,
+              "net_pnl": -877.0,
+              "profit_factor": 0.43,
+              "win_rate": 0.2,
+              "avg_r": -0.5,
+              "avg_trade": -58.47,
+              "max_drawdown": 1007.8,
+              "worst_day": -255.6,
+              "best_day": 365.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 35,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 21.8,
+                "drawdown": 9.9,
+                "consistency": 0,
+                "sample": 3.8
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "13:00",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": true,
+              "first_break_only": true,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 28,
+              "days_traded": 28,
+              "net_pnl": -166.3,
+              "profit_factor": 0.88,
+              "win_rate": 0.393,
+              "avg_r": -0.02,
+              "avg_trade": -5.94,
+              "max_drawdown": 408.3,
+              "worst_day": -186.1,
+              "best_day": 180.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 46,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 22.7,
+                "drawdown": 15.9,
+                "consistency": 0,
+                "sample": 7.0
+              }
+            },
+            "out_of_sample": {
+              "trades": 15,
+              "days_traded": 15,
+              "net_pnl": -877.0,
+              "profit_factor": 0.43,
+              "win_rate": 0.2,
+              "avg_r": -0.5,
+              "avg_trade": -58.47,
+              "max_drawdown": 1007.8,
+              "worst_day": -255.6,
+              "best_day": 365.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 35,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 21.8,
+                "drawdown": 9.9,
+                "consistency": 0,
+                "sample": 3.8
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "11:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": false,
+              "first_break_only": true,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 28,
+              "days_traded": 28,
+              "net_pnl": -166.3,
+              "profit_factor": 0.88,
+              "win_rate": 0.393,
+              "avg_r": -0.02,
+              "avg_trade": -5.94,
+              "max_drawdown": 408.3,
+              "worst_day": -186.1,
+              "best_day": 180.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 46,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 22.7,
+                "drawdown": 15.9,
+                "consistency": 0,
+                "sample": 7.0
+              }
+            },
+            "out_of_sample": {
+              "trades": 15,
+              "days_traded": 15,
+              "net_pnl": -877.0,
+              "profit_factor": 0.43,
+              "win_rate": 0.2,
+              "avg_r": -0.5,
+              "avg_trade": -58.47,
+              "max_drawdown": 1007.8,
+              "worst_day": -255.6,
+              "best_day": 365.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 35,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 21.8,
+                "drawdown": 9.9,
+                "consistency": 0,
+                "sample": 3.8
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "13:00",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": false,
+              "first_break_only": true,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 28,
+              "days_traded": 28,
+              "net_pnl": -166.3,
+              "profit_factor": 0.88,
+              "win_rate": 0.393,
+              "avg_r": -0.02,
+              "avg_trade": -5.94,
+              "max_drawdown": 408.3,
+              "worst_day": -186.1,
+              "best_day": 180.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 46,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 22.7,
+                "drawdown": 15.9,
+                "consistency": 0,
+                "sample": 7.0
+              }
+            },
+            "out_of_sample": {
+              "trades": 15,
+              "days_traded": 15,
+              "net_pnl": -877.0,
+              "profit_factor": 0.43,
+              "win_rate": 0.2,
+              "avg_r": -0.5,
+              "avg_trade": -58.47,
+              "max_drawdown": 1007.8,
+              "worst_day": -255.6,
+              "best_day": 365.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 35,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 21.8,
+                "drawdown": 9.9,
+                "consistency": 0,
+                "sample": 3.8
+              }
+            }
+          },
+          {
+            "params": {
+              "entry_end": "10:30",
+              "stop_mode": "mid",
+              "reward": 1.5,
+              "vwap_filter": true,
+              "first_break_only": false,
+              "max_trades": 2,
+              "atr_mult": 1.5,
+              "max_risk_usd": 500.0,
+              "daily_loss_usd": 1000.0,
+              "allow_longs": true,
+              "allow_shorts": true
+            },
+            "in_sample": {
+              "trades": 33,
+              "days_traded": 26,
+              "net_pnl": -376.3,
+              "profit_factor": 0.76,
+              "win_rate": 0.364,
+              "avg_r": -0.09,
+              "avg_trade": -11.4,
+              "max_drawdown": 534.1,
+              "worst_day": -186.1,
+              "best_day": 180.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 46,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 22.7,
+                "drawdown": 14.7,
+                "consistency": 0,
+                "sample": 8.2
+              }
+            },
+            "out_of_sample": {
+              "trades": 18,
+              "days_traded": 14,
+              "net_pnl": -1007.8,
+              "profit_factor": 0.44,
+              "win_rate": 0.222,
+              "avg_r": -0.44,
+              "avg_trade": -55.99,
+              "max_drawdown": 1007.8,
+              "worst_day": -279.7,
+              "best_day": 365.9,
+              "days_over_eod_limit": 0,
+              "best_day_share_of_profit": null,
+              "prop_score": {
+                "total": 36,
+                "verdict": "fails PF > 1.5",
+                "edge": 0,
+                "daily_loss": 21.5,
+                "drawdown": 9.9,
+                "consistency": 0,
+                "sample": 4.5
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
