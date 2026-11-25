@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-25",
+  "as_of": "2026-11-25 15:59",
+  "risk_per_instrument": 150.0,
+  "orders": {
+    "MES": {
+      "range_high": 7075.75,
+      "range_low": 6982.5,
+      "range_pts": 93.25,
+      "vix_10": 31.639999389648438,
+      "vix_prev_close": 26.360000610351562,
+      "side": "short",
+      "qty": 0,
+      "entry": 6982.5,
+      "stop": 7075.75,
+      "target": 6702.75,
+      "risk_usd": 0.0,
+      "cost_usd": 0.0,
+      "status": "no trade: one contract risks $472, more than $150"
+    },
+    "MNQ": {
+      "range_high": 25477.25,
+      "range_low": 25027.5,
+      "range_pts": 449.75,
+      "vix_10": 31.639999389648438,
+      "vix_prev_close": 26.360000610351562,
+      "side": "short",
+      "qty": 0,
+      "entry": 25027.5,
+      "stop": 25477.25,
+      "target": 23678.25,
+      "risk_usd": 0.0,
+      "cost_usd": 0.0,
+      "status": "no trade: one contract risks $904, more than $150"
+    }
+  }
+}

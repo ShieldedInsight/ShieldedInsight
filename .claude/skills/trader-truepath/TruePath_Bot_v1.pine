@@ -1,0 +1,400 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
+// © MoMoney8
+//@version=6
+strategy("TruePath_Bot_v1",
+     shorttitle              = "TP Bot",
+     overlay                 = true,
+     initial_capital         = 50000,
+     default_qty_type        = strategy.fixed,
+     default_qty_value       = 1,
+     commission_type         = strategy.commission.cash_per_contract,
+     commission_value        = 1.55,
+     slippage                = 1,
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     calc_on_order_fills     = false,
+     process_orders_on_close = false,
+     use_bar_magnifier       = true,
+     margin_long             = 0,
+     margin_short            = 0,
+     max_bars_back           = 1000)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TruePath Bot v1 — automated opening-range breakout for MES and MNQ
+// ══════════════════════════════════════════════════════════════════════════════
+// SAFE PROFILE (default): ONE chart, 5-minute MNQ1! with extended hours, risk
+// $500 a trade (= 1 MNQ on most days; days whose range is too wide are skipped).
+// Orders go to the Tradeify account through a webhook bridge (TradersPost or
+// PickMyTrade → Tradovate). A second chart on MES1! ($300) roughly doubles the
+// trade count but tripled the failure rate in simulation — see below.
+//
+// THE RULES (the only design that held up in testing — see the analysis doc)
+//   1. Range: high and low of 09:00–10:00 ET.
+//   2. VIX direction at 10:00: VIX below yesterday's close → long side only;
+//      above → short side only. Live mode needs one side, so no OCO is needed.
+//   3. Entry: ONE stop order at the range high (long) or low (short), live
+//      10:00–15:00 ET, then cancelled.
+//   4. Stop: the other side of the range. Target: 3R. Flat at 15:55 ET.
+//   5. Size: contracts = risk ÷ (range × point value + costs), rounded down.
+//
+// EVIDENCE (Python, Yahoo Finance hourly futures, Jul 2024 – Nov 2026, costs in)
+//   ES:  503 trades, +4.3 pts/trade, PF 1.40 · in-sample PF 1.39, 2026 PF 1.43.
+//   NQ:  526 trades, IS +20.9 pts PF 1.42 · 2026 +16.5 pts PF 1.25.
+//   VIX filter improved both periods on ES and NQ's in-sample.
+//   Tradeify Select 50K simulated from every start day, whole contracts,
+//   VIX filter on (489 starts):
+//     MNQ $500 only:        83% passed · 0% failed · 17% unfinished · median
+//                           72 trading days to pass · 77% reached a payout.
+//     MES $300 only:        80% · 0% · 20% · 118 days · 75% payout.
+//     MES $400 + MNQ $500:  62% · 38% failed · 39 days · 52% payout.
+//   Slow by design: the edge is real but small, so safe size takes months.
+//   Rejected: MA Cross RTH (SMA 7) — on 50 new sessions (Sep–Nov 2026) it lost
+//   even before costs (PF 0.87; 0.77 with costs).
+//
+// LIMITS  The tested range starts 30 min before the cash open (hourly data).
+//         Rule figures for Tradeify come from third-party summaries; verify.
+//         Past results do not guarantee future results.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const string NY = "America/New_York"
+
+const string G_BT   = "══════ 1 · Backtest & Validation ══════"
+const string G_PROP = "══════ 2 · Prop Account & Sizing ══════"
+const string G_ORB  = "══════ 3 · Opening Range ══════"
+const string G_VIX  = "══════ 4 · VIX Direction ══════"
+const string G_EXT  = "══════ 5 · Exits ══════"
+const string G_BOT  = "══════ 6 · Automation (webhook) ══════"
+const string G_OUT  = "══════ 7 · Display ══════"
+
+bool   i_useWin = input.bool(false, "Limit Backtest Window", group = G_BT)
+int    i_start  = input.time(timestamp("2019-01-01 00:00"), "Start", group = G_BT)
+int    i_end    = input.time(timestamp("2099-12-31 00:00"), "End", group = G_BT)
+int    i_oos    = input.time(timestamp("2026-01-01 00:00"), "Out-of-Sample Starts", group = G_BT)
+
+string i_plan    = input.string("Tradeify Select 50K", "Account Plan", options = ["Tradeify Select 50K", "Tradeify Select 100K", "Tradeify Growth 50K", "Tradeify Growth 100K", "Custom", "Off"], group = G_PROP,
+     tooltip = "Select 50K: $3,000 target / $2,000 EOD trailing / no DLL / 40% consistency in evaluation. Growth 50K adds a $1,250 DLL. Figures from third-party summaries, Nov 2026 — verify with Tradeify.")
+string i_phase   = input.string("Evaluation", "Account Phase", options = ["Evaluation", "Funded (Select Flex)"], group = G_PROP,
+     tooltip = "Funded: tracks winning days (≥ the threshold below) toward the next payout instead of the profit target.")
+bool   i_cycle   = input.bool(true, "Backtest: Restart after Pass / Fail", group = G_PROP)
+float  i_cTarget = input.float(3000, "  · Custom: Profit Target ($)", minval = 0, step = 250, group = G_PROP)
+float  i_cDD     = input.float(2000, "  · Custom: Trailing Drawdown ($)", minval = 0, step = 250, group = G_PROP)
+float  i_cDLL    = input.float(0, "  · Custom: Daily Loss Limit ($, 0 = none)", minval = 0, step = 250, group = G_PROP)
+float  i_cCons   = input.float(40, "  · Custom: Consistency (% best day, 0 = none)", minval = 0, maxval = 100, step = 5, group = G_PROP)
+float  i_buffer  = input.float(150, "Safety Buffer ($)", minval = 0, step = 25, group = G_PROP)
+float  i_riskIn  = input.float(0, "Risk per Trade ($, 0 = auto: MNQ $500 · MES $300)", minval = 0, step = 25, group = G_PROP,
+     tooltip = "Whole contracts: contracts = risk ÷ (range × point value + costs). MNQ $500 ≈ 1 contract on most days. Bigger risk passed faster but failed more often (MNQ $600: 63% pass, 30% fail).")
+int    i_maxCt   = input.int(40, "Max Contracts", minval = 1, group = G_PROP, tooltip = "Tradeify 50K: 40 micros across the account. Two charts: keep each well under half.")
+float  i_winDay  = input.float(150, "Funded: Winning-Day Threshold ($)", minval = 0, step = 25, group = G_PROP)
+int    i_winNeed = input.int(5, "Funded: Winning Days per Payout", minval = 1, group = G_PROP)
+
+string i_orSes   = input.session("0900-1000", "Opening Range (NY)", group = G_ORB)
+string i_entWin  = input.session("1000-1500", "Entry Window (NY)", group = G_ORB)
+string i_dir     = input.string("Both", "Trade Direction", options = ["Both", "Long only", "Short only"], group = G_ORB)
+
+bool   i_vixOn   = input.bool(true, "VIX Direction Filter", group = G_VIX,
+     tooltip = "Required in live mode: it leaves one side, so one stop order and no OCO.")
+string i_vixSym  = input.symbol("CBOE:VIX", "VIX Symbol", group = G_VIX)
+
+string i_exitM   = input.string("3R", "Profit Exit", options = ["3R", "2R", "Close only"], group = G_EXT)
+int    i_flatH   = input.int(15, "Flat at (H : M)", minval = 0, maxval = 23, group = G_EXT, inline = "fl")
+int    i_flatM   = input.int(55, "", minval = 0, maxval = 59, group = G_EXT, inline = "fl")
+
+bool   i_live    = input.bool(false, "Live Mode: send webhook alerts", group = G_BOT,
+     tooltip = "Create ONE alert on this strategy: Condition = this script, 'alert() function calls only', Webhook URL = your bridge's URL, message left empty. Paper-trade it first.")
+string i_tpTick  = input.string("", "Bridge Ticker (blank = chart root, e.g. MES)", group = G_BOT)
+string i_bridge  = input.string("TradersPost", "Bridge JSON Format", options = ["TradersPost", "Generic"], group = G_BOT)
+
+bool   i_showLv  = input.bool(true, "Show Range & Orders", group = G_OUT)
+bool   i_showPanel = input.bool(true, "Show Dashboard", group = G_OUT)
+
+if timeframe.in_seconds() >= timeframe.in_seconds("D")
+    runtime.error("Use an intraday timeframe (5-minute recommended).")
+
+// Keep in sync with commission_value / slippage above (used for sizing).
+float i_riskUSD = i_riskIn > 0 ? i_riskIn : syminfo.root == "MES" or syminfo.root == "ES" ? 300.0 : 500.0
+float COMM_PER_SIDE = 1.55
+int   SLIP_TICKS    = 1
+
+bool  tested = syminfo.root == "MES" or syminfo.root == "MNQ" or syminfo.root == "ES" or syminfo.root == "NQ"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TIME, RANGE, VIX
+// ══════════════════════════════════════════════════════════════════════════════
+float tfMin    = timeframe.in_seconds() / 60.0
+int   closeMin = hour(time_close, NY) * 60 + minute(time_close, NY)
+int   flatMin  = i_flatH * 60 + i_flatM
+bool  inOR     = not na(time(timeframe.period, i_orSes, NY))
+bool  inEnt    = not na(time(timeframe.period, i_entWin, NY))
+bool  flatBar  = closeMin < 18 * 60 and closeMin + tfMin > flatMin
+bool  inBT     = not i_useWin or (time >= i_start and time <= i_end)
+bool  newDay   = timeframe.change("D")
+var int dayId = 0
+if newDay
+    dayId += 1
+
+float vix     = request.security(i_vixSym, timeframe.period, close)
+float vixPrev = request.security(i_vixSym, "D", close[1], lookahead = barmerge.lookahead_on)
+
+var float orH = na
+var float orL = na
+var bool  orDone = false
+var int   allowDir = 0          // 1 long only, -1 short only, 2 both, 0 none
+var bool  tradedToday = false
+
+if newDay
+    orH := na
+    orL := na
+    orDone := false
+    allowDir := 0
+    tradedToday := false
+
+int orEndMin = int(str.tonumber(str.substring(i_orSes, 5, 7))) * 60 + int(str.tonumber(str.substring(i_orSes, 7, 9)))
+if inOR
+    orH := na(orH) ? high : math.max(orH, high)
+    orL := na(orL) ? low : math.min(orL, low)
+    if closeMin >= orEndMin
+        orDone := true
+else if not orDone and not na(orH)
+    orDone := true
+
+bool orJustDone = orDone and not orDone[1]
+if orJustDone
+    int v = na(vix) or na(vixPrev) ? 2 : vix < vixPrev ? 1 : vix > vixPrev ? -1 : 0
+    allowDir := not i_vixOn ? 2 : v
+float orW = orH - orL
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PROP ACCOUNT · EVALUATION / FUNDED TRACKER
+// ══════════════════════════════════════════════════════════════════════════════
+bool  propOn  = i_plan != "Off"
+bool  funded  = i_phase != "Evaluation"
+float pTarget = i_plan == "Tradeify Select 50K" or i_plan == "Tradeify Growth 50K" ? 3000 : i_plan == "Tradeify Select 100K" or i_plan == "Tradeify Growth 100K" ? 6000 : i_plan == "Custom" ? i_cTarget : 0
+float pDD     = i_plan == "Tradeify Select 50K" or i_plan == "Tradeify Growth 50K" ? 2000 : i_plan == "Tradeify Select 100K" ? 3000 : i_plan == "Tradeify Growth 100K" ? 3500 : i_plan == "Custom" ? i_cDD : 0
+float pDLL    = i_plan == "Tradeify Growth 50K" ? 1250 : i_plan == "Tradeify Growth 100K" ? 2500 : i_plan == "Custom" ? i_cDLL : 0
+float pCons   = funded ? 0 : i_plan == "Tradeify Select 50K" or i_plan == "Tradeify Select 100K" ? 40 : i_plan == "Custom" ? i_cCons : 0
+float ctCost  = 2.0 * (COMM_PER_SIDE + SLIP_TICKS * syminfo.mintick * syminfo.pointvalue)
+
+var float evStart  = strategy.initial_capital
+var float eodPeak  = strategy.initial_capital
+var float floorBal = strategy.initial_capital - (i_plan == "Off" ? 1e9 : pDD)
+var float dayStart = strategy.initial_capital
+var float bestDay  = 0.0
+var int   evDays   = 0
+var bool  evFailFlag = false
+var int   evPass   = 0
+var int   evFail   = 0
+var int   evPassDays = 0
+var int   winDays  = 0
+var int   nBreach  = 0
+var int   lastBreachDay = -1
+var bool  dayHalt  = false
+
+if newDay
+    float closedBal = strategy.equity
+    float dayRes = closedBal - dayStart
+    bestDay := math.max(bestDay, dayRes)
+    if dayRes >= i_winDay
+        winDays += 1
+    evDays  += 1
+    if propOn
+        if closedBal > eodPeak
+            eodPeak  := closedBal
+            floorBal := math.min(eodPeak - pDD, evStart)
+        float prof   = closedBal - evStart
+        bool  passed = not funded and pTarget > 0 and prof >= pTarget and (pCons <= 0 or bestDay <= pCons / 100.0 * prof)
+        bool  failed = evFailFlag or closedBal <= floorBal + i_buffer
+        if i_cycle and (passed or failed)
+            if passed
+                evPass += 1
+                evPassDays += evDays
+            else
+                evFail += 1
+            evStart  := closedBal
+            eodPeak  := closedBal
+            floorBal := closedBal - pDD
+            bestDay  := 0.0
+            evDays   := 0
+            winDays  := 0
+            evFailFlag := false
+    dayStart := closedBal
+    dayHalt  := false
+
+float eqNow   = strategy.equity
+float dayPnl  = eqNow - dayStart
+float roomDD  = propOn ? eqNow - floorBal : na
+float roomDLL = propOn and pDLL > 0 ? pDLL + dayPnl : na
+float evProf  = eqNow - evStart
+bool  tgtDone = propOn and not funded and pTarget > 0 and evProf >= pTarget and (pCons <= 0 or math.max(bestDay, dayPnl) <= pCons / 100.0 * evProf)
+bool  payReady = funded and winDays >= i_winNeed and evProf > 0
+if propOn and eqNow <= floorBal
+    evFailFlag := true
+    if dayId != lastBreachDay
+        nBreach += 1
+        lastBreachDay := dayId
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WEBHOOK MESSAGES
+// ══════════════════════════════════════════════════════════════════════════════
+string bTick = i_tpTick == "" ? syminfo.root : i_tpTick
+f_px(float p) => str.tostring(p, format.mintick)
+f_entryMsg(int d, int q, float lvl, float stp, float tgt) =>
+    i_bridge == "TradersPost" ?
+     '{"ticker":"' + bTick + '","action":"' + (d == 1 ? "buy" : "sell") + '","orderType":"stop","stopPrice":' + f_px(lvl) + ',"quantity":' + str.tostring(q) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + f_px(stp) + '}' + (na(tgt) ? "" : ',"takeProfit":{"limitPrice":' + f_px(tgt) + '}') + '}' :
+     '{"symbol":"' + bTick + '","side":"' + (d == 1 ? "buy" : "sell") + '","type":"stop","stop":' + f_px(lvl) + ',"qty":' + str.tostring(q) + ',"sl":' + f_px(stp) + (na(tgt) ? "" : ',"tp":' + f_px(tgt)) + '}'
+f_simpleMsg(string act) =>
+    i_bridge == "TradersPost" ? '{"ticker":"' + bTick + '","action":"' + act + '"}' : '{"symbol":"' + bTick + '","action":"' + act + '"}'
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ORDERS — one stop entry on the VIX side, stop at the other side, 3R target
+// ══════════════════════════════════════════════════════════════════════════════
+bool  inPos  = strategy.position_size != 0
+bool  guardHit = propOn and inPos and (roomDD <= i_buffer or (not na(roomDLL) and roomDLL <= i_buffer))
+if guardHit
+    dayHalt := true
+bool  propOK = not propOn or (not dayHalt and not tgtDone and not evFailFlag)
+
+float tgtR   = i_exitM == "3R" ? 3.0 : i_exitM == "2R" ? 2.0 : na
+float perCt  = orW * syminfo.pointvalue + ctCost
+float allow  = i_riskUSD
+if propOn
+    allow := math.min(allow, roomDD - i_buffer)
+    if not na(roomDLL)
+        allow := math.min(allow, roomDLL - i_buffer)
+int   qty    = orW > 0 ? math.min(int(math.floor(allow / perCt)), i_maxCt) : 0
+bool  wantL  = (allowDir == 1 or (allowDir == 2 and not i_live)) and i_dir != "Short only"
+bool  wantS  = (allowDir == -1 or (allowDir == 2 and not i_live)) and i_dir != "Long only"
+bool  armed  = orDone and (inEnt or orJustDone) and not flatBar and inBT and not tradedToday and not inPos and propOK and qty >= 1 and barstate.isconfirmed
+
+var int   nDays = 0
+var int   nSkipSize = 0
+var int   nSkipVix  = 0
+var float lastRiskUSD = na
+var bool  orderLive = false
+if orJustDone
+    nDays += 1
+    if not wantL and not wantS
+        nSkipVix += 1
+    else if qty < 1
+        nSkipSize += 1
+
+if armed and (wantL or wantS)
+    lastRiskUSD := qty * orW * syminfo.pointvalue
+    float tL = na(tgtR) ? na : orH + tgtR * orW
+    float tS = na(tgtR) ? na : orL - tgtR * orW
+    if wantL
+        strategy.entry("L", strategy.long, qty = qty, stop = orH, oca_name = "ORB" + str.tostring(dayId), oca_type = strategy.oca.cancel, comment = "ORB L " + str.tostring(qty))
+        strategy.exit("XL", "L", stop = orL, limit = tL, comment_loss = "SL", comment_profit = "TP")
+    if wantS
+        strategy.entry("S", strategy.short, qty = qty, stop = orL, oca_name = "ORB" + str.tostring(dayId), oca_type = strategy.oca.cancel, comment = "ORB S " + str.tostring(qty))
+        strategy.exit("XS", "S", stop = orH, limit = tS, comment_loss = "SL", comment_profit = "TP")
+    // Live: one bracket stop order, sent once when the range completes
+    if i_live and orJustDone and barstate.isrealtime
+        alert(wantL ? f_entryMsg(1, qty, orH, orL, tL) : f_entryMsg(-1, qty, orL, orH, tS), alert.freq_once_per_bar_close)
+        orderLive := true
+
+if inPos or strategy.closedtrades > strategy.closedtrades[1]
+    tradedToday := true
+    orderLive := false
+bool cancelNow = (not (inEnt or orJustDone) or flatBar or not propOK) and not inPos
+if cancelNow
+    strategy.cancel("L")
+    strategy.cancel("S")
+    if i_live and orderLive and barstate.isrealtime
+        alert(f_simpleMsg("cancel"), alert.freq_once_per_bar_close)
+    orderLive := false
+if inPos and (flatBar or guardHit or not inBT)
+    strategy.close_all(comment = guardHit ? "Prop Guard" : "EOD", immediately = true)
+    if i_live and barstate.isrealtime
+        alert(f_simpleMsg("exit"), alert.freq_once_per_bar_close)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STATISTICS
+// ══════════════════════════════════════════════════════════════════════════════
+var array<int>   sN  = array.new<int>(2, 0)
+var array<int>   sW  = array.new<int>(2, 0)
+var array<float> sGW = array.new<float>(2, 0.0)
+var array<float> sGL = array.new<float>(2, 0.0)
+var array<float> sR  = array.new<float>(2, 0.0)
+var int lastCT = 0
+if strategy.closedtrades > lastCT
+    for i = lastCT to strategy.closedtrades - 1
+        float pnl = strategy.closedtrades.profit(i)
+        int   k   = strategy.closedtrades.entry_time(i) >= i_oos ? 1 : 0
+        array.set(sN, k, array.get(sN, k) + 1)
+        array.set(sR, k, array.get(sR, k) + (nz(lastRiskUSD) > 0 ? pnl / lastRiskUSD : 0.0))
+        if pnl > 0
+            array.set(sW, k, array.get(sW, k) + 1)
+            array.set(sGW, k, array.get(sGW, k) + pnl)
+        else if pnl < 0
+            array.set(sGL, k, array.get(sGL, k) - pnl)
+    lastCT := strategy.closedtrades
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS & DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+plot(i_showLv and orDone ? orH : na, "Range High", color.new(#2196F3, 0), 2, plot.style_linebr)
+plot(i_showLv and orDone ? orL : na, "Range Low", color.new(#2196F3, 0), 2, plot.style_linebr)
+plot(i_showLv and orDone and not na(tgtR) and wantL ? orH + tgtR * orW : na, "Long Target", color.new(color.lime, 60), 1, plot.style_linebr)
+plot(i_showLv and orDone and not na(tgtR) and wantS ? orL - tgtR * orW : na, "Short Target", color.new(color.red, 60), 1, plot.style_linebr)
+bgcolor(inOR ? color.new(#2196F3, 92) : na, title = "Range Window")
+bgcolor(propOn and (dayHalt or tgtDone or evFailFlag) and inEnt ? color.new(#FF6F00, 88) : na, title = "Prop Halt")
+plot(vix, "VIX", color.new(color.gray, 100), display = display.data_window)
+plot(vixPrev, "VIX prior close", color.new(color.gray, 100), display = display.data_window)
+
+var table tb = table.new(position.bottom_right, 3, 13, bgcolor = color.new(#0e1117, 10), border_width = 1, border_color = color.new(color.gray, 70))
+
+f_cell(int c, int r, string t, color col) =>
+    table.cell(tb, c, r, t, text_color = col, text_size = size.tiny)
+
+f_line(int k) =>
+    int n = array.get(sN, k)
+    float gl = array.get(sGL, k)
+    n == 0 ? "—" : str.tostring(n) + " · " + str.tostring(array.get(sW, k) * 100.0 / n, "0") + "% · PF " +
+     (gl > 0 ? str.tostring(array.get(sGW, k) / gl, "0.00") : "—") + " · $" + str.tostring(array.get(sGW, k) - gl, "#,##0")
+
+if i_showPanel and barstate.islast
+    color hd = color.new(color.silver, 0)
+    f_cell(0, 0, "TRUEPATH BOT v1", color.white)
+    f_cell(1, 0, syminfo.ticker + (tested ? "" : " (untested)"), tested ? color.white : color.orange)
+    f_cell(2, 0, i_live ? "LIVE · webhooks on" : "backtest / paper", i_live ? color.lime : color.white)
+    f_cell(0, 1, "Range · size", hd)
+    f_cell(1, 1, na(orH) ? "—" : str.tostring(orL, format.mintick) + " – " + str.tostring(orH, format.mintick), color.white)
+    f_cell(2, 1, na(orH) ? "—" : str.tostring(orW, format.mintick) + " pts · " + str.tostring(qty) + " ct", color.white)
+    f_cell(0, 2, "VIX · side today", hd)
+    f_cell(1, 2, na(vix) ? "no data" : str.tostring(vix, "0.00") + " vs " + str.tostring(vixPrev, "0.00"), na(vix) ? color.orange : color.white)
+    f_cell(2, 2, not i_vixOn ? "filter off" : allowDir == 1 ? "LONG only" : allowDir == -1 ? "SHORT only" : allowDir == 2 ? (i_live ? "no VIX: no trade" : "both (no VIX)") : orDone ? "no side" : "waiting",
+         allowDir == 1 ? color.lime : allowDir == -1 ? color.red : color.white)
+    f_cell(0, 3, "", hd)
+    f_cell(1, 3, "IN-SAMPLE", hd)
+    f_cell(2, 3, "OUT-OF-SAMPLE", color.yellow)
+    f_cell(0, 4, "Trades · win · PF · net", hd)
+    f_cell(1, 4, f_line(0), color.white)
+    f_cell(2, 4, f_line(1), color.white)
+    f_cell(0, 5, "Avg R / trade", hd)
+    f_cell(1, 5, array.get(sN, 0) > 0 ? str.tostring(array.get(sR, 0) / array.get(sN, 0), "+0.00;-0.00") : "—", color.white)
+    f_cell(2, 5, array.get(sN, 1) > 0 ? str.tostring(array.get(sR, 1) / array.get(sN, 1), "+0.00;-0.00") : "—", color.white)
+    f_cell(0, 6, "Days · skipped (VIX · size)", hd)
+    f_cell(1, 6, str.tostring(nDays), color.white)
+    f_cell(2, 6, str.tostring(nSkipVix) + " · " + str.tostring(nSkipSize), color.white)
+    f_cell(0, 7, "PROP · " + i_plan + " · " + i_phase, color.yellow)
+    f_cell(1, 7, propOn ? (funded ? "payout after " + str.tostring(i_winNeed) + " days ≥ $" + str.tostring(i_winDay, "#") : "target $" + str.tostring(pTarget, "#,##0")) : "research mode", color.white)
+    f_cell(2, 7, propOn ? "DD $" + str.tostring(pDD, "#,##0") + (pDLL > 0 ? " · DLL $" + str.tostring(pDLL, "#,##0") : " · no DLL") : "", color.white)
+    int evTot = evPass + evFail
+    f_cell(0, 8, "Backtest evals: pass · fail", hd)
+    f_cell(1, 8, propOn ? str.tostring(evPass) + " · " + str.tostring(evFail) + (evTot > 0 ? " (" + str.tostring(100.0 * evPass / evTot, "0") + "%)" : "") : "—",
+         evTot > 0 and evPass > evFail ? color.lime : evTot > 0 ? color.red : color.white)
+    f_cell(2, 8, evPass > 0 ? "avg " + str.tostring(evPassDays / evPass, "0") + " days to pass" : "—", color.white)
+    f_cell(0, 9, funded ? "Funded: profit · winning days" : "Current eval: profit · day", hd)
+    f_cell(1, 9, propOn ? "$" + str.tostring(evProf, "#,##0") + (funded ? "" : " / $" + str.tostring(pTarget, "#,##0")) : "—", evProf >= 0 ? color.lime : color.red)
+    f_cell(2, 9, funded ? str.tostring(winDays) + " / " + str.tostring(i_winNeed) + (payReady ? " · PAYOUT READY" : "") : "day " + str.tostring(evDays) + (evFailFlag ? " · FAILED" : ""),
+         payReady ? color.lime : evFailFlag ? color.red : color.white)
+    f_cell(0, 10, "Floor · room", hd)
+    f_cell(1, 10, propOn ? str.tostring(floorBal, "#,##0") : "—", color.white)
+    f_cell(2, 10, propOn ? "$" + str.tostring(roomDD, "#,##0") : "—", propOn and roomDD <= 2 * i_riskUSD ? color.orange : color.lime)
+    f_cell(0, 11, "Today", hd)
+    f_cell(1, 11, "$" + str.tostring(dayPnl, "#,##0"), dayPnl >= 0 ? color.lime : color.red)
+    f_cell(2, 11, na(roomDLL) ? "no DLL" : "DLL room $" + str.tostring(roomDLL, "#,##0"), color.white)
+    f_cell(0, 12, "Risk / trade · floor breaches", hd)
+    f_cell(1, 12, "$" + str.tostring(i_riskUSD, "#,##0"), color.white)
+    f_cell(2, 12, str.tostring(nBreach), nBreach > 0 ? color.red : color.lime)
