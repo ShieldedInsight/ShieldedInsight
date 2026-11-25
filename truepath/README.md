@@ -55,11 +55,13 @@ python truepath/orb_backtest.py --version 2     # writes trader/truepath_orb_v2_
 
 ## v2 results, OpenBB 5m, 2026-09-28 → 2026-11-25 (≈52 sessions, 50K account)
 
-| Contract | Trades | Net | Profit factor | Win rate | Prop score |
-|---|---|---|---|---|---|
-| MES | 20 | +$428 | 2.58 | 55% | 85 strong |
-| MNQ | 18 | +$383 | 1.57 | 39% | 61 workable |
-| ES | 16 | +$238 | 1.11 | — | 36 fails |
-| NQ | 7 | −$1,397 | 0.39 | — | 19 fails |
+These were re-run on 2026-11-25 after fixing a timezone bug: the first run read New York bar times as UTC, so every earlier v1/v2 number was measured 4–5 hours off and is invalid.
 
-**Read these with care.** The defaults were picked by testing on this same window, and each contract has fewer than 25 trades. With so few trades this is a lead worth following up, not a proven edge. ES and NQ trail the micros because of the $500 per-trade cap: at $50 and $20 a point, it only lets through days with a narrow range (about 10 points on ES and 25 on NQ), and those days did worse. Run the strategy on MES or MNQ, or raise the cap. Check a full year in TradingView's Strategy Tester before trading it live.
+| Contract | Trades | Net | Profit factor | Prop score |
+|---|---|---|---|---|
+| ES | 11 | +$2,491 | 2.47 | 72, workable |
+| MES | 27 | +$433 | 1.36 | 54, fails |
+| MNQ | 28 | −$613 | 0.82 | 35, fails |
+| NQ | 0 | — | — | the $500 cap blocks every trade |
+
+None of these is a usable result. ES had 11 trades. ES and MES are the same market, yet they gave very different results, which means the $500 cap is choosing which days get traded. MNQ lost. See `bot/README.md` for the rest of the testing and the plan.

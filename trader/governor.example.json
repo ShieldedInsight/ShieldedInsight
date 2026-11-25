@@ -1,0 +1,20 @@
+{
+  "_note": "Copy to trader/governor.json. Check every rule against your prop firm's current rulebook.",
+  "account": "TP-01",
+  "start_balance": 50000,
+  "trail": 2000,
+  "lock_at": 50000,
+  "cushion": 250,
+  "daily_loss_lock": 600,
+  "daily_profit_lock": null,
+  "max_contracts": 1,
+  "max_trades_per_day": 4,
+  "entry_start": "09:30",
+  "entry_end": "15:30",
+  "flat_by": "15:55",
+  "blackout": [],
+  "commission_side": 1.55,
+  "symbols": {"MNQ": "MNQ1!"},
+  "state_file": "trader/state/governor.json",
+  "log_file": "trader/state/governor_log.jsonl"
+}
