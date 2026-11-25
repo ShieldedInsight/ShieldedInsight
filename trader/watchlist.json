@@ -1,6 +1,6 @@
 {
   "created_by": "trader-scanner",
-  "created_at": "2026-11-25T06:08:24Z",
+  "created_at": "2026-11-25T06:20:05Z",
   "mode": "daily",
   "as_of": "2026-11-24 close",
   "universe": 5925,
@@ -28,9 +28,9 @@
       "setups": [
         "oversold"
       ],
-      "price": 77.95,
-      "close_date": "2026-11-24",
-      "rsi": 28.3,
+      "price": 94.39,
+      "close_date": "2026-11-19",
+      "rsi": 29.3,
       "volume": 96114209
     },
     {
