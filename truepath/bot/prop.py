@@ -79,17 +79,26 @@ def evaluate(days: pd.DataFrame, r: PropRules = PropRules()) -> dict:
 
 
 def days_from_tradingview(path: str) -> pd.DataFrame:
-    """TradingView 'List of trades' export: sums each trade's net P&L by its exit date; uses the
-    worst run-up/drawdown column for the intraday low when it exists."""
-    t = pd.read_csv(path)
-    t.columns = [c.strip() for c in t.columns]
-    exits = t[t["Type"].str.contains("Exit", case=False)].copy()
-    pnl_col = next(c for c in exits.columns if c.lower().startswith(("net p&l", "profit")) and "%" not in c)
-    dd_col = next((c for c in exits.columns if c.lower().startswith("drawdown") and "%" not in c), None)
-    exits["date"] = pd.to_datetime(exits["Date/Time"]).dt.date
+    """TradingView Strategy Tester export (.csv 'List of trades', or the .xlsx with a 'Trades' sheet).
+    Sums each closed trade's net P&L into its CME session (18:00 ET start) by exit time; the worst
+    adverse excursion of the day's trades stands in for the intraday low."""
+    if str(path).lower().endswith((".xlsx", ".xls")):
+        t = pd.read_excel(path, sheet_name="Trades")
+    else:
+        t = pd.read_csv(path)
+    t.columns = [str(c).strip() for c in t.columns]
+    date_col = next(c for c in t.columns if c.lower().startswith("date"))
+    t = t[~t[date_col].astype(str).str.contains("Open")]
+    exits = t[t["Type"].astype(str).str.contains("Exit", case=False)].copy()
+    pnl_col = next(c for c in exits.columns if c.lower().startswith(("net p&l", "net pnl", "profit")) and "%" not in c)
+    dd_col = next((c for c in exits.columns if c.lower().startswith(("drawdown", "adverse excursion")) and "%" not in c), None)
+    ts = pd.to_datetime(exits[date_col])
+    exits["date"] = (ts + pd.Timedelta(hours=6)).dt.normalize()   # CME session day
+    exits[pnl_col] = exits[pnl_col].astype(float)
     g = exits.groupby("date")
     days = pd.DataFrame({"pnl": g[pnl_col].sum()})
     if dd_col:
+        exits[dd_col] = exits[dd_col].astype(float)
         days["worst"] = np.minimum(days["pnl"], -g[dd_col].apply(lambda s: s.abs().max()))
     return days
 

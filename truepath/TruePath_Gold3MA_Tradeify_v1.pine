@@ -15,6 +15,8 @@ strategy("TruePath_Gold3MA_Tradeify_v1",
      calc_on_every_tick      = false,
      calc_on_order_fills     = false,
      process_orders_on_close = false,  // signal at a bar's close fills at the next bar's open
+     margin_long             = 0,      // futures: no stock-style margin calls in the backtest
+     margin_short            = 0,
      max_bars_back           = 500)
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -25,11 +27,10 @@ strategy("TruePath_Gold3MA_Tradeify_v1",
 // Market  : MGC1! (Micro Gold), 60-minute chart, full electronic session.
 // Account : Tradeify no-hold windows. Flat before 16:59 ET Mon-Thu, re-enter at the 18:00 open
 //           if the signal still holds. Flat from Friday 16:59 to the Sunday open.
-// Backtest: OpenBB 1h, Nov 2024 - Nov 2026, 1 contract, $1.55/side + 2 ticks:
-//           1,186 trades, +$22,050, t 1.91, both years positive (buy-and-hold under the same
-//           rule: +$1,180). Prop simulation (50K, $2,000 EOD trail): 71% payout / 29% bust.
-//           That bust rate FAILS the 15% gate. Do not run it funded until the risk controls
-//           below are tested and the 2019+ Deep Backtest holds up.
+// Backtest: TradingView MGC1! 1h, Jan 2023 - Nov 2026, 1 contract, $1.55/side + 2 ticks:
+//           2,412 trades, +$17,351, PF 1.11. Lost in 2023 (-$3,326) and 2024 (-$2,352); all the
+//           profit came in the 2025-26 gold trend. Prop simulation: 30.5% bust. FAILS the gate:
+//           do not run it funded.
 // Guards  : catastrophe stop and daily loss lock are OFF by default so the baseline matches
 //           the tested run. Both are untested; turning them on changes the results.
 // ══════════════════════════════════════════════════════════════════════════════
