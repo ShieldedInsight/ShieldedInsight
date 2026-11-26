@@ -64,8 +64,8 @@ def test_threshold_trails_then_locks():
     clk = [at(10, 0)]
     g = gov(clk)
     assert g.end_of_day(51_000)["threshold"] == 49_000
-    assert g.end_of_day(53_000)["threshold"] == 50_000   # locked at start balance
-    assert g.end_of_day(52_000)["threshold"] == 50_000   # never moves down
+    assert g.end_of_day(53_000)["threshold"] == 50_100   # locked at start + $100
+    assert g.end_of_day(52_000)["threshold"] == 50_100   # never moves down
 
 
 def test_flat_by():

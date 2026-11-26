@@ -1,9 +1,9 @@
 {
-  "_note": "Copy to trader/governor.json. Check every rule against your prop firm's current rulebook.",
+  "_note": "Tradeify Select Flex 50K: $2,000 EOD trail (enforced intraday), floor locks at $50,100 once the EOD balance reaches $52,100 or at the first payout; no daily loss limit (the $600 lock is your own). Copy to trader/governor.json and check the current rulebook.",
   "account": "TP-01",
   "start_balance": 50000,
   "trail": 2000,
-  "lock_at": 50000,
+  "lock_at": 50100,
   "cushion": 250,
   "daily_loss_lock": 600,
   "daily_profit_lock": null,

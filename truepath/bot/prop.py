@@ -24,7 +24,7 @@ import pandas as pd
 class PropRules:
     start: float = 50_000.0
     trail: float = 2_000.0            # EOD trailing drawdown
-    lock_at: float = 50_000.0         # the threshold stops rising once it reaches this balance
+    lock_at: float = 50_100.0         # the threshold stops rising here (Tradeify 50K: start + $100)
     daily_loss: float | None = None   # firm daily loss limit, if any (breach = day ends, not bust)
     win_day_min: float = 150.0        # a day counts toward payout only if it makes at least this
     win_days_needed: int = 5

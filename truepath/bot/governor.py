@@ -42,7 +42,7 @@ class Config:
     account: str = "TP-01"
     start_balance: float = 50_000.0
     trail: float = 2_000.0                 # EOD trailing drawdown
-    lock_at: float = 50_000.0              # threshold stops trailing at this balance
+    lock_at: float = 50_100.0              # threshold stops trailing here (Tradeify 50K: start + $100)
     cushion: float = 250.0                 # never let a stop-out land closer than this to the threshold
     daily_loss_lock: float = 600.0         # estimated day P&L at or below -this blocks new entries
     daily_profit_lock: float | None = None # optional: stop for the day after this much profit
