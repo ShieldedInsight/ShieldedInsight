@@ -1,0 +1,168 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
+// © MoMoney8
+// @version=6
+
+strategy("TruePath_Gold3MA_Tradeify_v1",
+     shorttitle              = "TP Gold 3MA",
+     overlay                 = true,
+     initial_capital         = 50000,
+     default_qty_type        = strategy.fixed,
+     default_qty_value       = 1,
+     commission_type         = strategy.commission.cash_per_contract,
+     commission_value        = 1.55,   // per side
+     slippage                = 2,      // ticks per fill
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     calc_on_order_fills     = false,
+     process_orders_on_close = false,  // signal at a bar's close fills at the next bar's open
+     max_bars_back           = 500)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DESIGN
+// Source  : Kakushadze & Serur, "151 Trading Strategies", 3.13 Three moving averages.
+//           Long when MA(3) > MA(10) > MA(21), out when MA(3) <= MA(10).
+//           Short when MA(3) < MA(10) < MA(21), out when MA(3) >= MA(10).
+// Market  : MGC1! (Micro Gold), 60-minute chart, full electronic session.
+// Account : Tradeify no-hold windows. Flat before 16:59 ET Mon-Thu, re-enter at the 18:00 open
+//           if the signal still holds. Flat from Friday 16:59 to the Sunday open.
+// Backtest: OpenBB 1h, Nov 2024 - Nov 2026, 1 contract, $1.55/side + 2 ticks:
+//           1,186 trades, +$22,050, t 1.91, both years positive (buy-and-hold under the same
+//           rule: +$1,180). Prop simulation (50K, $2,000 EOD trail): 71% payout / 29% bust.
+//           That bust rate FAILS the 15% gate. Do not run it funded until the risk controls
+//           below are tested and the 2019+ Deep Backtest holds up.
+// Guards  : catastrophe stop and daily loss lock are OFF by default so the baseline matches
+//           the tested run. Both are untested; turning them on changes the results.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const string NY = "America/New_York"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+const string G_SIG = "══════ 1 · Signal ══════"
+const string G_ACC = "══════ 2 · Tradeify Windows ══════"
+const string G_RSK = "══════ 3 · Risk (untested, OFF = tested baseline) ══════"
+const string G_OUT = "══════ 4 · Display & Alerts ══════"
+
+int    i_fast   = input.int(3, "Fast MA", minval = 1, group = G_SIG)
+int    i_mid    = input.int(10, "Middle MA", minval = 2, group = G_SIG)
+int    i_slow   = input.int(21, "Slow MA", minval = 3, group = G_SIG)
+bool   i_longs  = input.bool(true, "Allow Longs", group = G_SIG)
+bool   i_shorts = input.bool(true, "Allow Shorts", group = G_SIG)
+int    i_qty    = input.int(1, "Contracts", minval = 1, group = G_SIG, tooltip = "Tested at 1 MGC. More contracts raise the bust rate.")
+
+bool   i_break  = input.bool(true, "Flat 16:59-17:59 ET Mon-Thu", group = G_ACC)
+bool   i_wkend  = input.bool(true, "Flat Friday 16:59 to Sunday open", group = G_ACC)
+
+bool   i_catOn  = input.bool(false, "Catastrophe Stop", group = G_RSK, inline = "cat")
+float  i_catPts = input.float(40, "points", minval = 1, step = 1, group = G_RSK, inline = "cat", tooltip = "MGC: 1 point = $10 per contract.")
+bool   i_dlOn   = input.bool(false, "Daily Loss Lock", group = G_RSK, inline = "dl")
+float  i_dlAmt  = input.float(600, "$", minval = 50, step = 50, group = G_RSK, inline = "dl", tooltip = "Closed + open P&L since the 18:00 open. Flattens and waits for the next session.")
+
+bool   i_showMA    = input.bool(true, "Show MAs", group = G_OUT)
+bool   i_showPanel = input.bool(true, "Show Dashboard", group = G_OUT)
+string i_acctTag   = input.string("TP-01", "Alert Account Tag", group = G_OUT)
+
+if timeframe.in_seconds() >= timeframe.in_seconds("D")
+    runtime.error("Use an intraday timeframe (tested on 60-minute).")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SIGNAL: book 3.13 state machine (exit is checked before entry, as in the backtest)
+// ══════════════════════════════════════════════════════════════════════════════
+float m1 = ta.sma(close, i_fast)
+float m2 = ta.sma(close, i_mid)
+float m3 = ta.sma(close, i_slow)
+
+var int st = 0
+bool exitL = m1 <= m2
+bool exitS = m1 >= m2
+if st == 1 and exitL
+    st := 0
+else if st == -1 and exitS
+    st := 0
+if m1 > m2 and m2 > m3 and st <= 0 and not exitL
+    st := 1
+else if m1 < m2 and m2 < m3 and st >= 0 and not exitS
+    st := -1
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TRADEIFY WINDOWS: may a position be held over the NEXT bar?
+// ══════════════════════════════════════════════════════════════════════════════
+int tfMin = int(timeframe.in_seconds() / 60)
+int nS    = hour(time_close, NY) * 60 + minute(time_close, NY)   // next bar's start, ET minutes
+int nE    = nS + tfMin
+int nDow  = dayofweek(time_close, NY)                            // 1 = Sunday ... 7 = Saturday
+// No bars print 17:00-18:00, so a "next bar" at 17:00 is really the 18:00 (or Sunday) open.
+bool nextIsReopen = nS == 17 * 60
+bool monThu = nDow >= dayofweek.monday and nDow <= dayofweek.thursday
+bool badBreak = i_break and monThu and nS < 18 * 60 and nE > 16 * 60 + 59
+bool badWkend = i_wkend and ((nDow == dayofweek.friday and nE > 16 * 60 + 59) or nDow == dayofweek.saturday or (nDow == dayofweek.sunday and nS < 18 * 60))
+bool allowed  = nextIsReopen or not (badBreak or badWkend)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DAILY LOSS LOCK (optional)
+// ══════════════════════════════════════════════════════════════════════════════
+bool  newSess  = timeframe.change("D")   // futures sessions roll at the 18:00 ET open
+var float dayStart = 0.0
+var bool  dayLock  = false
+if newSess
+    dayStart := strategy.netprofit
+    dayLock  := false
+float dayPnl = strategy.netprofit + strategy.openprofit - dayStart
+if i_dlOn and dayPnl <= -i_dlAmt
+    dayLock := true
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+f_alert(string act, int target, float stp) =>
+    '{"acct":"' + i_acctTag + '","sym":"' + syminfo.root + '","action":"' + act + '","target":' + str.tostring(target) +
+     ',"price":' + str.tostring(close, format.mintick) + (na(stp) ? "" : ',"stop":' + str.tostring(stp, format.mintick)) + '}'
+
+int want = st == 1 and i_longs ? 1 : st == -1 and i_shorts ? -1 : 0
+int target = allowed and not dayLock ? want : 0
+int cur = strategy.position_size > 0 ? 1 : strategy.position_size < 0 ? -1 : 0
+
+if barstate.isconfirmed and target != cur
+    if target == 0
+        strategy.close_all(comment = not allowed ? "Tradeify window" : dayLock ? "Day lock" : "Signal exit", alert_message = f_alert("flat", 0, na))
+    else if target == 1
+        float stp = i_catOn ? math.round_to_mintick(close - i_catPts) : na
+        strategy.entry("L", strategy.long, qty = i_qty, comment = "3MA Long", alert_message = f_alert("buy", i_qty, stp))
+    else
+        float stp = i_catOn ? math.round_to_mintick(close + i_catPts) : na
+        strategy.entry("S", strategy.short, qty = i_qty, comment = "3MA Short", alert_message = f_alert("sell", -i_qty, stp))
+
+// Catastrophe stop, re-anchored to the actual fill every bar
+if i_catOn
+    if strategy.position_size > 0
+        strategy.exit("CatL", "L", stop = math.round_to_mintick(strategy.position_avg_price - i_catPts), comment_loss = "Cat SL", alert_message = f_alert("flat", 0, na))
+    else if strategy.position_size < 0
+        strategy.exit("CatS", "S", stop = math.round_to_mintick(strategy.position_avg_price + i_catPts), comment_loss = "Cat SL", alert_message = f_alert("flat", 0, na))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS & DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+plot(i_showMA ? m1 : na, "MA fast", color.new(color.yellow, 0), 1)
+plot(i_showMA ? m2 : na, "MA middle", color.new(color.orange, 0), 2)
+plot(i_showMA ? m3 : na, "MA slow", color.new(color.blue, 0), 2)
+bgcolor(not allowed ? color.new(color.gray, 85) : na, title = "Tradeify no-hold window next bar")
+
+var table tb = table.new(position.bottom_right, 2, 6, bgcolor = color.new(#0e1117, 10), border_width = 1, border_color = color.new(color.gray, 70))
+f_cell(int c, int r, string t, color col) =>
+    table.cell(tb, c, r, t, text_color = col, text_size = size.tiny)
+
+if i_showPanel and barstate.islast
+    float pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
+    f_cell(0, 0, "TP GOLD 3MA", color.white)
+    f_cell(1, 0, str.tostring(i_fast) + "/" + str.tostring(i_mid) + "/" + str.tostring(i_slow) + " · " + timeframe.period + "m", color.white)
+    f_cell(0, 1, "Net", color.silver)
+    f_cell(1, 1, "$" + str.tostring(strategy.netprofit, "#,##0"), strategy.netprofit >= 0 ? color.lime : color.red)
+    f_cell(0, 2, "Profit factor", color.silver)
+    f_cell(1, 2, na(pf) ? "—" : str.tostring(pf, "0.00"), not na(pf) and pf >= 1.3 ? color.lime : color.orange)
+    f_cell(0, 3, "Closed trades", color.silver)
+    f_cell(1, 3, str.tostring(strategy.closedtrades), color.white)
+    f_cell(0, 4, "Max DD", color.silver)
+    f_cell(1, 4, "$" + str.tostring(strategy.max_drawdown, "#,##0"), strategy.max_drawdown > 2000 ? color.red : color.lime)
+    f_cell(0, 5, "Signal · next bar", color.silver)
+    f_cell(1, 5, (st == 1 ? "LONG" : st == -1 ? "SHORT" : "FLAT") + (allowed ? "" : " · window"), st == 1 ? color.lime : st == -1 ? color.red : color.gray)
