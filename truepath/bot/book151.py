@@ -7,8 +7,9 @@ Costs: $1.55 per contract per side + 2 ticks slippage per side. Signals at a bar
 the next bar's open. Parameters are the book's own examples; where it gives none, one value was
 fixed before any run (marked "chosen"). Nothing is tuned.
 
-Timeframes: 1d (2000+, RTY 2017+), 1h (2 years), 15m and 5m (~60 days). Intraday runs twice:
-"24h" exactly as written, and "rth" flat outside 09:30-15:55 ET (what a Tradeify account can trade).
+Timeframes: 1d (2010+, RTY 2017+), 1h (2 years), 15m and 5m (~60 days). Modes: "24h" exactly as
+written; "tradeify" flat during 16:59-17:59 ET Mon-Thu and from Friday 16:59 to the Sunday open (the
+account's no-hold windows); intraday also "rth", flat outside 09:30-15:55 ET.
 
     python truepath/bot/book151.py            # writes trader/book151_results.csv and .json
 """
@@ -46,6 +47,19 @@ def load(root: str, tf: str) -> pd.DataFrame:
     if tf == "1d":
         df = df[df.index >= pd.Timestamp("2010-01-01", tz="America/New_York")]
     return df[(df["close"] > 0) & (df["high"] >= df["low"])]
+
+
+def tradeify_mask(idx: pd.DatetimeIndex, tf: str) -> np.ndarray:
+    """allowed[t] is True if the bar AFTER t avoids Tradeify's no-hold windows: 16:59-17:59 ET
+    Monday-Thursday, and Friday 16:59 to the Sunday 18:00 open. (Daily bars: see pnl_series.)"""
+    if tf == "1d":
+        return np.ones(len(idx), bool)
+    mins = {"1h": 60, "15m": 15, "5m": 5}[tf]
+    s = idx.hour * 60 + idx.minute
+    e = s + mins
+    wd = idx.weekday  # Mon=0 .. Sun=6
+    bad = ((wd <= 3) & (s < 18 * 60) & (e > 16 * 60 + 59)) | ((wd == 4) & (e > 16 * 60 + 59)) | (wd == 5) | ((wd == 6) & (s < 18 * 60))
+    return np.append(~bad[1:], False)
 
 
 def rth_mask(idx: pd.DatetimeIndex, tf: str) -> np.ndarray:
@@ -475,16 +489,22 @@ NOT_TESTABLE = {
 # P&L
 # ══════════════════════════════════════════════════════════════════════════════
 
-def pnl_series(df: pd.DataFrame, pos: np.ndarray, root: str) -> pd.Series:
-    """Position decided at bar t's close is held from bar t+1's open."""
+def pnl_series(df: pd.DataFrame, pos: np.ndarray, root: str, daily_flat: bool = False) -> pd.Series:
+    """Position decided at bar t's close is held from bar t+1's open.
+    daily_flat (Tradeify on daily bars): each bar runs 18:00 -> 17:00 ET, so the position is closed
+    at every session's close and reopened at the next 18:00 open: no gap exposure (no weekends),
+    and a full round trip of costs for every day held."""
     _, pv, tick = MARKETS[root]
     o, c = df["open"].to_numpy(), df["close"].to_numpy()
     p = np.nan_to_num(np.asarray(pos, float))
     prev = np.concatenate([[0, 0], p[:-2]])   # held through the gap into bar i (decided two closes ago)
     cur = np.concatenate([[0], p[:-1]])       # filled at bar i's open
+    side_cost = COMMISSION_SIDE + SLIP_TICKS * tick * pv
+    if daily_flat:
+        return pd.Series(cur * (c - o) * pv - 2 * np.abs(cur) * side_cost, index=df.index)
     gap = np.concatenate([[0], o[1:] - c[:-1]])
     pnl = prev * gap + cur * (c - o)
-    cost = np.abs(cur - prev) * (COMMISSION_SIDE + SLIP_TICKS * tick * pv)
+    cost = np.abs(cur - prev) * side_cost
     return pd.Series((pnl * pv - cost), index=df.index)
 
 
@@ -525,7 +545,7 @@ def run() -> pd.DataFrame:
     rows = []
     for tf in TIMEFRAMES:
         frames = {m: load(m, tf) for m in MARKETS}
-        modes = ["24h"] if tf == "1d" else ["24h", "rth"]
+        modes = ["24h", "tradeify"] if tf == "1d" else ["24h", "rth", "tradeify"]
         # single-contract strategies
         for name, fn in SINGLE.items():
             for m, df in frames.items():
@@ -535,7 +555,7 @@ def run() -> pd.DataFrame:
                     rows.append({"strategy": name, "market": MARKETS[m][0], "tf": tf, "mode": "-", "error": str(e)})
                     continue
                 for mode in modes:
-                    pos = raw * rth_mask(df.index, tf) if mode == "rth" else raw
+                    pos = raw * MASKS[mode](df.index, tf)
                     rows.append(row(name, MARKETS[m][0], tf, mode, df, {m: pos}, {m: df}))
             print(f"{tf:4} {name}", flush=True)
         # portfolio strategies on the aligned panel
@@ -546,15 +566,19 @@ def run() -> pd.DataFrame:
                 continue
             w = fn(panel)
             for mode in modes:
-                mask = rth_mask(panel.index, tf) if mode == "rth" else np.ones(len(panel), bool)
+                mask = MASKS[mode](panel.index, tf)
                 pos = {m: w[m].to_numpy() * mask for m in w.columns}
                 rows.append(row(name, "portfolio", tf, mode, panel, pos, aligned))
             print(f"{tf:4} {name}", flush=True)
     return pd.DataFrame(rows)
 
 
+MASKS = {"24h": lambda idx, tf: np.ones(len(idx), bool), "rth": rth_mask, "tradeify": tradeify_mask}
+
+
 def row(name, market, tf, mode, df, positions: dict, frames: dict) -> dict:
-    total = sum(pnl_series(frames[m], positions[m], m) for m in positions)
+    flat = mode == "tradeify" and tf == "1d"
+    total = sum(pnl_series(frames[m], positions[m], m, daily_flat=flat) for m in positions)
     trades = sum(count_trades(positions[m]) for m in positions)
     a, b, split = halves(total, tf)
     rec = {"strategy": name, "market": market, "tf": tf, "mode": mode,

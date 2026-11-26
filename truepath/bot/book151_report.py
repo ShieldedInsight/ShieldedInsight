@@ -6,7 +6,7 @@ Tier 2 (what is likely real): Tier 1, plus
   - t-stat of daily P&L above the multiple-testing bar (Bonferroni, one-sided 5%, over all tests),
   - positive in both halves (daily: before and after the book's Aug 2018 publication),
   - for long-biased rules, more net than buy-and-hold of the same market and timeframe.
-Prop-tradeable = holds nothing overnight: only the intraday "rth" runs qualify for a Tradeify account.
+Prop-tradeable = the "tradeify" runs: flat 16:59-17:59 ET Mon-Thu and over the weekend (Fri 16:59 to the Sunday open).
 """
 
 from __future__ import annotations
@@ -50,7 +50,8 @@ def main() -> None:
     t1["bench"] = [bench.get((r.market, r.tf, r["mode"])) for _, r in t1.iterrows()]
     beats = [(not r.strategy.startswith(LONG_BIASED)) or (r.bench is None or pd.isna(r.bench) or r.net > r.bench) for _, r in t1.iterrows()]
     t2 = t1[(t1.trades >= 30) & (t1.t_stat > bar) & (t1.first_net > 0) & (t1.second_net > 0) & pd.Series(beats, index=t1.index)]
-    prop = t1[t1["mode"] == "rth"]
+    prop = t1[t1["mode"] == "tradeify"]
+    prop2 = t2[t2["mode"] == "tradeify"]
 
     by_tf = book.groupby("tf").apply(lambda g: f"{(g.net > 0).sum()}/{len(g)}", include_groups=False)
     out = [
@@ -64,7 +65,7 @@ def main() -> None:
         "- **Costs and fills:** $1.55 per side plus 2 ticks of slippage. Fills at the next bar's open.",
         "- **Parameters:** the book's own examples, otherwise one value fixed before the first run. Nothing tuned.",
         "- **Timeframes:** 1d (2010 to 2026; RTY from 2017), 1h (Nov 2024 to Nov 2026), 15m and 5m (Sep 29 to Nov 25, 2026).",
-        "- **Modes:** `24h` runs the rule as written, holding overnight. `rth` is flat outside 09:30–15:55 ET, the only mode a Tradeify account can trade.",
+        "- **Modes:** `24h` runs the rule as written. `tradeify` is flat during Tradeify's no-hold windows: 16:59–17:59 ET Monday to Thursday, and Friday 16:59 to the Sunday 18:00 open. On daily bars that means closing at each session's close and reopening at the 6 pm open, paying a round trip every day. `rth` (intraday only) is flat outside 09:30–15:55 ET.",
         f"- **Tests:** {n} book-strategy tests plus buy-and-hold benchmarks. Positive net by timeframe: " + ", ".join(f"{k} {v}" for k, v in by_tf.items()) + ".",
         f"- **Multiple-testing bar:** with {n} tests, luck alone produces a t-stat above 1.65 about {n * 0.05:.0f} times. A result must reach **t > {bar:.2f}** (Bonferroni, one-sided 5%) before it counts as likely real.",
         "",
@@ -74,9 +75,9 @@ def main() -> None:
         "",
         table(t2.sort_values("t_stat", ascending=False)) if len(t2) else "**None.** No strategy passed every check.",
         "",
-        f"## Prop-tradeable: flat overnight, positive expectancy and net ({len(prop)})",
+        f"## Tradeify-tradeable: positive expectancy and net ({len(prop)}; {len(prop2)} of them also pass Tier 2)",
         "",
-        "Intraday `rth` runs only. The 15m and 5m runs cover about 40 trading days, which is too short to separate skill from luck.",
+        "`tradeify` runs only. The 15m and 5m runs cover about 40 trading days, which is too short to separate skill from luck.",
         "",
         table(prop.sort_values("t_stat", ascending=False)) if len(prop) else "None.",
         "",
@@ -91,7 +92,7 @@ def main() -> None:
     nt = json.loads((ROOT / "trader" / "book151_not_testable.json").read_text())
     out += [f"- **{k}:** {v}" for k, v in nt.items()]
     (ROOT / "trader" / "book151_report.md").write_text("\n".join(out) + "\n")
-    print(f"tests={n} bar={bar:.2f} tier1={len(t1)} tier2={len(t2)} prop={len(prop)}")
+    print(f"tests={n} bar={bar:.2f} tier1={len(t1)} tier2={len(t2)} tradeify={len(prop)} tradeify_tier2={len(prop2)}")
 
 
 if __name__ == "__main__":
