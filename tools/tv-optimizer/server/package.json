@@ -1,0 +1,16 @@
+{
+  "name": "tv-optimizer-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MCP server that lets Claude Code drive TradingView's Strategy Tester through the TruePath TV Optimizer Chrome extension and score its exports.",
+  "type": "module",
+  "main": "index.js",
+  "bin": { "tv-optimizer": "index.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "exceljs": "^4.4.0",
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
+  }
+}
