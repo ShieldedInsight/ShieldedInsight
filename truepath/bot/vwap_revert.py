@@ -99,9 +99,10 @@ def session_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     daily = pd.DataFrame({"high": g["high"].max(), "low": g["low"].min(), "close": g["close"].last()})
     prev_c = daily["close"].shift()
     tr = pd.concat([daily["high"] - daily["low"], (daily["high"] - prev_c).abs(), (daily["low"] - prev_c).abs()], axis=1).max(1)
-    daily["atr"] = tr.ewm(alpha=1 / 14, adjust=False).mean()
-    daily["atr_lo"] = daily["atr"].shift().rolling(250, min_periods=120).quantile(0.2)
-    daily["atr_hi"] = daily["atr"].shift().rolling(250, min_periods=120).quantile(0.8)
+    atr = tr.ewm(alpha=1 / 14, adjust=False).mean()
+    daily["atr"] = atr.shift()                       # known at the open: through the prior session
+    daily["atr_lo"] = daily["atr"].rolling(250, min_periods=120).quantile(0.2)
+    daily["atr_hi"] = daily["atr"].rolling(250, min_periods=120).quantile(0.8)
     daily["sma20"] = daily["close"].rolling(20).mean().shift()
     daily["prev_close"], daily["prev_high"], daily["prev_low"] = prev_c, daily["high"].shift(), daily["low"].shift()
     r = np.log(rth["close"]).diff().where(rth["day"] == rth["day"].shift())
