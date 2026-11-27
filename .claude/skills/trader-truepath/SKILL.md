@@ -68,6 +68,26 @@ and `trader/truepath/account.json`.
 - Limits: hourly test bars (the tested range starts 30 min before the cash
   open); Yahoo continuous futures; Tradeify rules from third-party summaries.
 
+## Second leg: gold (MGC) — experimental
+
+Same range (09:00–10:00 ET) on MGC, side = the direction the 09:00–10:00 hour
+closed, entries until 12:00, flat 13:00, risk $250. It is uncorrelated with the
+MNQ leg (daily correlation 0.09) and, simulated with MNQ $500 on Select 50K,
+raised payout odds from 77% to 83–85% and cut the median time to the first
+payout from ~114 to ~84 sessions — but 13–15% of evaluations failed (MNQ alone: 0%).
+
+**It is not confirmed.** Yahoo serves two versions of gold's 2024–25 history: on
+one the rule made +1.2 pts/trade (PF 1.23), on the other it lost (−0.49, PF 0.93).
+Both agree on 2026 (≈ +2.4 pts, PF ≈ 1.3, 144 trades). `backtest` now downloads
+twice and prints a WARNING when the copies differ. Do not add MGC to a paid
+evaluation until a TradingView Deep Backtest on MGC1! from 2019 (use
+`/tv-optimize`) shows profit factor ≥ 1.2 in-sample and out-of-sample. Until
+then: `plan --symbols MNQ,MGC` and `backtest --symbols MNQ,MGC` are opt-in.
+
+Rejected as second strategies (tested once each, Nov 2026): last-hour momentum
+(Gao, Han, Li & Zhou 2018) lost on ES in both periods and was inconsistent on NQ;
+the overnight gap fade worked in 2024–25 and failed in 2026.
+
 ## Steps
 
 **Daily (before 15:00 ET):**

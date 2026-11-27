@@ -39,12 +39,15 @@ STATE_DIR = os.path.join("trader", "truepath")
 ACCOUNT = os.path.join(STATE_DIR, "account.json")
 
 # micro contract specs; Yahoo symbol of the full-size proxy
+# side: "vix" = VIX at 10:00 vs prior close (index futures); "candle" = the 09:00-10:00
+# hour's direction (gold). Entries until entry_end, flat at flat (minutes after midnight ET).
 SPECS = {
-    "MES": dict(yahoo="ES=F", pv=5.0, tick=0.25),
-    "MNQ": dict(yahoo="NQ=F", pv=2.0, tick=0.25),
+    "MES": dict(yahoo="ES=F", pv=5.0, tick=0.25, side="vix", entry_end=15 * 60, flat=15 * 60 + 55, last_hr=15),
+    "MNQ": dict(yahoo="NQ=F", pv=2.0, tick=0.25, side="vix", entry_end=15 * 60, flat=15 * 60 + 55, last_hr=15),
+    "MGC": dict(yahoo="GC=F", pv=10.0, tick=0.10, side="candle", entry_end=12 * 60, flat=13 * 60, last_hr=12),
 }
 # Default risk per trade: the "safe" profile (one instrument) from the prop simulation.
-DEFAULT_RISK = {"MES": 300.0, "MNQ": 500.0}
+DEFAULT_RISK = {"MES": 300.0, "MNQ": 500.0, "MGC": 250.0}
 COMM_PER_SIDE = 1.55
 SLIP_TICKS = 1
 TARGET_R = 3.0
@@ -122,14 +125,22 @@ def day_plan(bars, day, vix_at10, vix_prev, spec, risk, bar_minutes):
     if not complete:
         plan["status"] = "range still forming (completes 10:00 ET)"
         return plan
-    if vix_at10 is None or vix_prev is None:
-        side = 0
+    if spec["side"] == "candle":
+        o, c = rng[0][1], rng[-1][4]
+        side = 1 if c > o else -1 if c < o else 0
+        plan.update(range_open=o, range_close=c, side={1: "long", -1: "short", 0: "none"}[side], side_rule="opening-hour candle")
+        if side == 0:
+            plan["status"] = "no trade: the 09:00-10:00 candle closed flat"
+            return plan
     else:
-        side = 1 if vix_at10 < vix_prev else -1 if vix_at10 > vix_prev else 0
-    plan.update(vix_10=vix_at10, vix_prev_close=vix_prev, side={1: "long", -1: "short", 0: "none"}[side])
-    if side == 0:
-        plan["status"] = "no trade: VIX unchanged or no VIX data"
-        return plan
+        if vix_at10 is None or vix_prev is None:
+            side = 0
+        else:
+            side = 1 if vix_at10 < vix_prev else -1 if vix_at10 > vix_prev else 0
+        plan.update(vix_10=vix_at10, vix_prev_close=vix_prev, side={1: "long", -1: "short", 0: "none"}[side], side_rule="VIX direction")
+        if side == 0:
+            plan["status"] = "no trade: VIX unchanged or no VIX data"
+            return plan
     w = hi - lo
     per = w * spec["pv"] + cost_per_ct(spec)
     qty = int(math.floor(risk / per)) if w > 0 else 0
@@ -146,7 +157,7 @@ def day_plan(bars, day, vix_at10, vix_prev, spec, risk, bar_minutes):
     for b in after:
         m = mins(b[0])
         if filled is None:
-            if m >= ENTRY_END:
+            if m >= spec["entry_end"]:
                 break
             if (side == 1 and b[2] >= entry) or (side == -1 and b[3] <= entry):
                 filled = b[0]
@@ -154,14 +165,15 @@ def day_plan(bars, day, vix_at10, vix_prev, spec, risk, bar_minutes):
                     result = ("stop", -w)          # same bar: assume the worst
                     break
             continue
-        if m + bar_minutes > FLAT:
-            result = ("flat 15:55", side * (b[4] - entry)); break
+        if m + bar_minutes > spec["flat"]:
+            result = (f"flat {spec['flat'] // 60}:{spec['flat'] % 60:02d}", side * (b[4] - entry)); break
         if (side == 1 and b[3] <= stop) or (side == -1 and b[2] >= stop):
             result = ("stop", -w); break
         if (side == 1 and b[2] >= target) or (side == -1 and b[3] <= target):
             result = ("target 3R", TARGET_R * w); break
     if filled is None:
-        plan["status"] = "waiting for the stop order to trigger" if (after and mins(after[-1][0]) < ENTRY_END) or not after else "not triggered (order cancelled at 15:00)"
+        end = spec["entry_end"]
+        plan["status"] = "waiting for the stop order to trigger" if (after and mins(after[-1][0]) < end) or not after else f"not triggered (order cancelled at {end // 60}:{end % 60:02d})"
         return plan
     plan["filled"] = filled.strftime("%H:%M")
     if result is None:
@@ -206,11 +218,14 @@ def cmd_plan(a):
         print(f"\n{sym}  ({spec['yahoo']} as proxy) · risk ${risk:.0f}")
         if "range_high" in p:
             print(f"  range 09:00-10:00  {p['range_low']:.2f} - {p['range_high']:.2f}  ({p['range_pts']} pts)")
-        if "side" in p:
+        if "side" in p and p.get("side_rule") == "VIX direction":
             print(f"  VIX at 10:00 {p['vix_10']:.2f} vs prior close {p['vix_prev_close']:.2f}  ->  {p['side'].upper()} side only")
+        elif "side" in p:
+            print(f"  09:00-10:00 candle {p['range_open']:.2f} -> {p['range_close']:.2f}  ->  {p['side'].upper()} side only")
         if p.get("qty", 0) >= 1:
             print(f"  order: {p['side']} {p['qty']} {sym} on a stop at {p['entry']:.2f} · stop {p['stop']:.2f} · target {p['target']:.2f} (3R)")
-            print(f"         risk ${p['risk_usd']:.0f} + costs ${p['cost_usd']:.0f} · cancel at 15:00 if untriggered · flat 15:55")
+            e, fl = spec["entry_end"], spec["flat"]
+            print(f"         risk ${p['risk_usd']:.0f} + costs ${p['cost_usd']:.0f} · cancel at {e // 60}:{e % 60:02d} if untriggered · flat {fl // 60}:{fl % 60:02d}")
             print("  webhook: " + json.dumps(webhook(sym, p)))
         print(f"  status: {p['status']}" + (f" · open {p['open_pts']:+.2f} pts (${p['open_usd']:+.0f})" if "open_pts" in p else "")
               + (f" · {p['result_pts']:+.2f} pts (${p['result_usd']:+.0f} after costs)" if "result_pts" in p else ""))
@@ -301,25 +316,47 @@ def cmd_account(a):
         print(f"  WARNING: room to the floor is ${s['room']:,.0f}; cut risk per trade or stop.")
 
 
-def hourly_trades(sym_yahoo, vix_hourly, vix_daily, pv):
-    bars = fetch_bars(sym_yahoo, "60m", "730d")
+def stable_bars(sym_yahoo):
+    """Yahoo sometimes serves different versions of a continuous future's history.
+    Fetch twice; if the copies differ, say so - results on that data are not reliable."""
+    a = fetch_bars(sym_yahoo, "60m", "730d")
+    time.sleep(2)
+    b = fetch_bars(sym_yahoo, "60m", "730d")
+    da, db = {x[0]: x[1:5] for x in a}, {x[0]: x[1:5] for x in b}
+    common = set(da) & set(db)
+    missing = len(set(da) ^ set(db))
+    changed = sum(1 for k in common if da[k] != db[k])
+    if missing or changed:
+        print(f"  WARNING: two downloads of {sym_yahoo} differ ({missing} bars missing from one, {changed} with different prices). "
+              f"Results below depend on which version Yahoo served; confirm in TradingView.")
+    return a
+
+
+def hourly_trades(spec, vix_hourly, vix_daily, bars=None):
+    sym_yahoo, pv, last_hr = spec["yahoo"], spec["pv"], spec["last_hr"]
+    last_entry_hr = spec["entry_end"] // 60 - 1
+    if bars is None:
+        bars = fetch_bars(sym_yahoo, "60m", "730d")
     by_day = {}
     for b in bars:
-        if 9 <= b[0].hour <= 15:
+        if 9 <= b[0].hour <= last_hr:
             by_day.setdefault(b[0].date(), {})[b[0].hour] = b
     v9 = {b[0].date(): b[4] for b in vix_hourly if b[0].hour == 9}
     trades = []
     for day in sorted(by_day):
         g = by_day[day]
-        if any(h not in g for h in range(9, 16)):
+        if any(h not in g for h in range(9, last_hr + 1)):
             continue
         hi, lo = g[9][2], g[9][3]
         w = hi - lo
-        vp = day_close(vix_daily, day)
-        v = v9.get(day)
-        vside = 0 if (v is None or vp is None) else (1 if v < vp else -1 if v > vp else 0)
+        if spec["side"] == "candle":
+            vside = 1 if g[9][4] > g[9][1] else -1 if g[9][4] < g[9][1] else 0
+        else:
+            vp = day_close(vix_daily, day)
+            v = v9.get(day)
+            vside = 0 if (v is None or vp is None) else (1 if v < vp else -1 if v > vp else 0)
         res = None
-        for hr in range(10, 15):
+        for hr in range(10, last_entry_hr + 1):
             b = g[hr]
             up, dn = b[2] >= hi, b[3] <= lo
             if up and dn:
@@ -331,17 +368,17 @@ def hourly_trades(sym_yahoo, vix_hourly, vix_daily, pv):
             tgt = e + d * TARGET_R * w
             if (d == 1 and b[3] <= s) or (d == -1 and b[2] >= s):
                 res = (d, -w); break
-            for h2 in range(hr + 1, 16):
+            for h2 in range(hr + 1, last_hr + 1):
                 c = g[h2]
                 if (d == 1 and c[3] <= s) or (d == -1 and c[2] >= s):
                     res = (d, -w); break
                 if (d == 1 and c[2] >= tgt) or (d == -1 and c[3] <= tgt):
                     res = (d, TARGET_R * w); break
             if res is None:
-                res = (d, d * (g[15][4] - e))
+                res = (d, d * (g[last_hr][4] - e))
             break
         if res and w > 0:
-            cost_pts = cost_per_ct(dict(pv=pv, tick=0.25)) / pv
+            cost_pts = cost_per_ct(spec) / pv
             trades.append(dict(date=day, d=res[0], pts=res[1] - cost_pts, R=(res[1] - cost_pts) / w, w=w, vix_ok=res[0] == vside))
     return trades
 
@@ -413,11 +450,13 @@ def cmd_backtest(a):
     syms = a.symbols.split(",")
     for sym in syms:
         spec = SPECS[sym]
-        tr = hourly_trades(spec["yahoo"], vh, vd, spec["pv"])
-        if not a.no_vix:
+        print(f"\nChecking {spec['yahoo']} data...")
+        tr = hourly_trades(spec, vh, vd, bars=stable_bars(spec["yahoo"]))
+        if spec["side"] == "candle" or not a.no_vix:      # gold always trades the candle's side
             tr = [t for t in tr if t["vix_ok"]]
         allt[sym] = (tr, spec)
-        print(f"\n{sym} ({spec['yahoo']}, 09:00-10:00 range, 3R, costs in, VIX filter {'off' if a.no_vix else 'on'})")
+        rule = "opening-candle side" if spec["side"] == "candle" else f"VIX filter {'off' if a.no_vix else 'on'}"
+        print(f"\n{sym} ({spec['yahoo']}, 09:00-10:00 range, 3R, costs in, {rule})")
         stats(tr, "all")
         stats([t for t in tr if t["date"] < split], f"before {split}")
         stats([t for t in tr if t["date"] >= split], f"from {split}")
@@ -448,8 +487,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="truepath.py", description="TruePath Bot companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("plan", help="today's MES / MNQ orders")
-    p.add_argument("--risk", type=float, default=0, help="risk per trade per instrument ($); default MNQ $500, MES $300")
-    p.add_argument("--symbols", default="MNQ")
+    p.add_argument("--risk", type=float, default=0, help="risk per trade per instrument ($); default MNQ $500, MGC $250, MES $300")
+    p.add_argument("--symbols", default="MNQ", help="MNQ (default), MES, MGC (experimental) - comma-separated")
     p.add_argument("--now", help='pin the clock, New York time, e.g. "2026-11-25 10:05"')
     p.set_defaults(fn=cmd_plan)
     p = sub.add_parser("account", help="evaluation / funded tracker")
@@ -461,8 +500,8 @@ def main(argv=None):
     p.add_argument("--amount", type=float)
     p.set_defaults(fn=cmd_account)
     p = sub.add_parser("backtest", help="re-test the rules on Yahoo hourly data + prop simulation")
-    p.add_argument("--risk", type=float, default=0, help="default MNQ $500, MES $300")
-    p.add_argument("--symbols", default="MNQ")
+    p.add_argument("--risk", type=float, default=0, help="default MNQ $500, MGC $250, MES $300")
+    p.add_argument("--symbols", default="MNQ", help="MNQ (default), MES, MGC (experimental) - comma-separated")
     p.add_argument("--split", default="2026-01-01")
     p.add_argument("--no-vix", action="store_true")
     p.set_defaults(fn=cmd_backtest)

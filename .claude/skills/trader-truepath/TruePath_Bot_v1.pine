@@ -1,7 +1,7 @@
 // This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
 // © MoMoney8
 //@version=6
-strategy("TruePath_Bot_v1",
+strategy("TruePath_Bot_v1.1",
      shorttitle              = "TP Bot",
      overlay                 = true,
      initial_capital         = 50000,
@@ -50,6 +50,16 @@ strategy("TruePath_Bot_v1",
 //   Slow by design: the edge is real but small, so safe size takes months.
 //   Rejected: MA Cross RTH (SMA 7) — on 50 new sessions (Sep–Nov 2026) it lost
 //   even before costs (PF 0.87; 0.77 with costs).
+//
+// v1.1 GOLD (MGC) — EXPERIMENTAL, off unless you put it on an MGC chart
+//   Same range (09:00–10:00 ET), side = the direction the 09:00–10:00 hour
+//   closed (no VIX), entries until 12:00, flat 13:00, risk $250.
+//   On one version of Yahoo's gold history it held up (2024–25 PF 1.23–1.35,
+//   2026 PF 1.30); on another version of the SAME period it lost (PF 0.93).
+//   2026 agreed on both (≈ +2.4 pts, PF 1.28–1.30, 144 trades, t ≈ 1).
+//   Confirm it with Deep Backtesting on MGC1! before trading it.
+//   Simulated with MNQ $500 + MGC $250 (Select 50K): 83–85% reached a payout,
+//   ~84 sessions to the first one (vs 114), but 13–15% of evaluations failed.
 //
 // LIMITS  The tested range starts 30 min before the cash open (hourly data).
 //         Rule figures for Tradeify come from third-party summaries; verify.
@@ -104,6 +114,11 @@ bool   i_live    = input.bool(false, "Live Mode: send webhook alerts", group = G
 string i_tpTick  = input.string("", "Bridge Ticker (blank = chart root, e.g. MES)", group = G_BOT)
 string i_bridge  = input.string("TradersPost", "Bridge JSON Format", options = ["TradersPost", "Generic"], group = G_BOT)
 
+string i_gcEntWin = input.session("1000-1200", "Gold (MGC): Entry Window (NY)", group = G_ORB,
+     tooltip = "Gold profile is automatic on MGC / GC charts. EXPERIMENTAL: confirm with Deep Backtesting before live use.")
+int    i_gcFlH    = input.int(13, "Gold: Flat at (H : M)", minval = 0, maxval = 23, group = G_ORB, inline = "gfl")
+int    i_gcFlM    = input.int(0, "", minval = 0, maxval = 59, group = G_ORB, inline = "gfl")
+
 bool   i_showLv  = input.bool(true, "Show Range & Orders", group = G_OUT)
 bool   i_showPanel = input.bool(true, "Show Dashboard", group = G_OUT)
 
@@ -111,7 +126,8 @@ if timeframe.in_seconds() >= timeframe.in_seconds("D")
     runtime.error("Use an intraday timeframe (5-minute recommended).")
 
 // Keep in sync with commission_value / slippage above (used for sizing).
-float i_riskUSD = i_riskIn > 0 ? i_riskIn : syminfo.root == "MES" or syminfo.root == "ES" ? 300.0 : 500.0
+bool  isGold    = syminfo.root == "MGC" or syminfo.root == "GC"
+float i_riskUSD = i_riskIn > 0 ? i_riskIn : isGold ? 250.0 : syminfo.root == "MES" or syminfo.root == "ES" ? 300.0 : 500.0
 float COMM_PER_SIDE = 1.55
 int   SLIP_TICKS    = 1
 
@@ -122,9 +138,9 @@ bool  tested = syminfo.root == "MES" or syminfo.root == "MNQ" or syminfo.root ==
 // ══════════════════════════════════════════════════════════════════════════════
 float tfMin    = timeframe.in_seconds() / 60.0
 int   closeMin = hour(time_close, NY) * 60 + minute(time_close, NY)
-int   flatMin  = i_flatH * 60 + i_flatM
+int   flatMin  = isGold ? i_gcFlH * 60 + i_gcFlM : i_flatH * 60 + i_flatM
 bool  inOR     = not na(time(timeframe.period, i_orSes, NY))
-bool  inEnt    = not na(time(timeframe.period, i_entWin, NY))
+bool  inEnt    = not na(time(timeframe.period, isGold ? i_gcEntWin : i_entWin, NY))
 bool  flatBar  = closeMin < 18 * 60 and closeMin + tfMin > flatMin
 bool  inBT     = not i_useWin or (time >= i_start and time <= i_end)
 bool  newDay   = timeframe.change("D")
@@ -140,6 +156,8 @@ var float orL = na
 var bool  orDone = false
 var int   allowDir = 0          // 1 long only, -1 short only, 2 both, 0 none
 var bool  tradedToday = false
+var float orO = na
+var float orC = na
 
 if newDay
     orH := na
@@ -147,9 +165,14 @@ if newDay
     orDone := false
     allowDir := 0
     tradedToday := false
+    orO := na
+    orC := na
 
 int orEndMin = int(str.tonumber(str.substring(i_orSes, 5, 7))) * 60 + int(str.tonumber(str.substring(i_orSes, 7, 9)))
 if inOR
+    if na(orO)
+        orO := open
+    orC := close
     orH := na(orH) ? high : math.max(orH, high)
     orL := na(orL) ? low : math.min(orL, low)
     if closeMin >= orEndMin
@@ -159,8 +182,11 @@ else if not orDone and not na(orH)
 
 bool orJustDone = orDone and not orDone[1]
 if orJustDone
-    int v = na(vix) or na(vixPrev) ? 2 : vix < vixPrev ? 1 : vix > vixPrev ? -1 : 0
-    allowDir := not i_vixOn ? 2 : v
+    if isGold
+        allowDir := orC > orO ? 1 : orC < orO ? -1 : 0      // gold: the opening hour's direction
+    else
+        int v = na(vix) or na(vixPrev) ? 2 : vix < vixPrev ? 1 : vix > vixPrev ? -1 : 0
+        allowDir := not i_vixOn ? 2 : v
 float orW = orH - orL
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -356,14 +382,14 @@ f_line(int k) =>
 if i_showPanel and barstate.islast
     color hd = color.new(color.silver, 0)
     f_cell(0, 0, "TRUEPATH BOT v1", color.white)
-    f_cell(1, 0, syminfo.ticker + (tested ? "" : " (untested)"), tested ? color.white : color.orange)
+    f_cell(1, 0, syminfo.ticker + (isGold ? " (gold: EXPERIMENTAL)" : tested ? "" : " (untested)"), tested and not isGold ? color.white : color.orange)
     f_cell(2, 0, i_live ? "LIVE · webhooks on" : "backtest / paper", i_live ? color.lime : color.white)
     f_cell(0, 1, "Range · size", hd)
     f_cell(1, 1, na(orH) ? "—" : str.tostring(orL, format.mintick) + " – " + str.tostring(orH, format.mintick), color.white)
     f_cell(2, 1, na(orH) ? "—" : str.tostring(orW, format.mintick) + " pts · " + str.tostring(qty) + " ct", color.white)
-    f_cell(0, 2, "VIX · side today", hd)
-    f_cell(1, 2, na(vix) ? "no data" : str.tostring(vix, "0.00") + " vs " + str.tostring(vixPrev, "0.00"), na(vix) ? color.orange : color.white)
-    f_cell(2, 2, not i_vixOn ? "filter off" : allowDir == 1 ? "LONG only" : allowDir == -1 ? "SHORT only" : allowDir == 2 ? (i_live ? "no VIX: no trade" : "both (no VIX)") : orDone ? "no side" : "waiting",
+    f_cell(0, 2, isGold ? "Opening candle · side today" : "VIX · side today", hd)
+    f_cell(1, 2, isGold ? (na(orO) ? "—" : str.tostring(orO, format.mintick) + " → " + str.tostring(orC, format.mintick)) : na(vix) ? "no data" : str.tostring(vix, "0.00") + " vs " + str.tostring(vixPrev, "0.00"), na(vix) and not isGold ? color.orange : color.white)
+    f_cell(2, 2, not i_vixOn and not isGold ? "filter off" : allowDir == 1 ? "LONG only" : allowDir == -1 ? "SHORT only" : allowDir == 2 ? (i_live ? "no VIX: no trade" : "both (no VIX)") : orDone ? "no side" : "waiting",
          allowDir == 1 ? color.lime : allowDir == -1 ? color.red : color.white)
     f_cell(0, 3, "", hd)
     f_cell(1, 3, "IN-SAMPLE", hd)

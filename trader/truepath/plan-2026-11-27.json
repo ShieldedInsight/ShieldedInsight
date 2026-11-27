@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-27",
+  "as_of": "2026-11-27 12:55",
+  "orders": {
+    "MNQ": {
+      "range_high": 26589.25,
+      "range_low": 26226.0,
+      "range_pts": 363.25,
+      "vix_10": 27.329999923706055,
+      "vix_prev_close": 26.799999237060547,
+      "side": "short",
+      "side_rule": "VIX direction",
+      "qty": 0,
+      "entry": 26226.0,
+      "stop": 26589.25,
+      "target": 25136.25,
+      "risk_usd": 0.0,
+      "cost_usd": 0.0,
+      "status": "no trade: one contract risks $731, more than $500"
+    },
+    "MGC": {
+      "range_high": 3672.5,
+      "range_low": 3651.89990234375,
+      "range_pts": 20.6,
+      "range_open": 3664.60009765625,
+      "range_close": 3664.39990234375,
+      "side": "short",
+      "side_rule": "opening-hour candle",
+      "qty": 1,
+      "entry": 3651.89990234375,
+      "stop": 3672.5,
+      "target": 3590.1,
+      "risk_usd": 206.0,
+      "cost_usd": 5.1,
+      "filled": "10:20",
+      "status": "open",
+      "open_pts": -11.5,
+      "open_usd": -115.0
+    }
+  }
+}
