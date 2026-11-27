@@ -1,0 +1,294 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
+// © MoMoney8
+// @version=6
+
+strategy("TruePath_VWAP_Revert_v1",
+     shorttitle              = "TP VWAP Revert",
+     overlay                 = true,
+     initial_capital         = 50000,
+     default_qty_type        = strategy.fixed,
+     default_qty_value       = 1,
+     commission_type         = strategy.commission.cash_per_contract,
+     commission_value        = 1.55,   // per side
+     slippage                = 2,      // ticks per fill
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     calc_on_order_fills     = false,
+     process_orders_on_close = false,  // signal at a bar's close fills at the next bar's open
+     margin_long             = 0,
+     margin_short            = 0,
+     max_bars_back           = 2000)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DESIGN  (mirrors truepath/bot/vwap_revert.py)
+// Mean    : session VWAP anchored at 09:30 ET.  sigma = volume-weighted VWAP band width.
+// Signal  : z = (close - VWAP) / sigma.  z <= -k -> long, z >= +k -> short (fade the stretch).
+// Edge    : |close - VWAP| >= edge multiple x round-trip cost in points.
+// Exits   : VWAP touch (target) | stop 1.5 sigma beyond entry | 24 bars | 15:55 ET flat.
+// Limits  : entries 10:00-15:00, max 2 per side per day, done after 2 losing trades.
+// Filters : seven switches, OFF = core baseline. Turn on ONE at a time and compare.
+// Test    : MES1! and MNQ1!, 5-minute, Deep Backtest from 2018 (or as far back as the plan allows).
+//           The dashboard splits results at the In/Out-of-Sample date: pick settings on the
+//           in-sample column ONLY, then read the out-of-sample column once.
+// Status  : UNTESTED on long history. Not for a funded account until it passes the gate:
+//           out-of-sample PF >= 1.3 and prop simulation bust <= 15%.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const string NY = "America/New_York"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+const string G_BT  = "══════ 1 · Backtest Split ══════"
+const string G_COR = "══════ 2 · Core ══════"
+const string G_FLT = "══════ 3 · Filters (one at a time) ══════"
+const string G_OUT = "══════ 4 · Display & Alerts ══════"
+
+int    i_oos     = input.time(timestamp("2023-01-01 00:00"), "Out-of-Sample Starts", group = G_BT, tooltip = "Choose settings on trades before this date only.")
+
+float  i_k       = input.float(2.5, "Entry z (k)", options = [2.0, 2.5, 3.0], group = G_COR, tooltip = "Test 2.0, 2.5 and 3.0. Pick by in-sample results only.")
+float  i_stopSg  = input.float(1.5, "Stop (sigma beyond entry)", minval = 0.25, step = 0.25, group = G_COR)
+int    i_maxBars = input.int(24, "Time Stop (bars)", minval = 1, group = G_COR)
+float  i_edge    = input.float(3.0, "Edge: distance >= x round-trip cost", minval = 0, step = 0.5, group = G_COR)
+string i_win     = input.session("1000-1500", "Entry Window (ET)", group = G_COR)
+int    i_qty     = input.int(1, "Contracts", minval = 1, group = G_COR)
+int    i_maxSide = input.int(2, "Max Entries per Side per Day", minval = 1, group = G_COR)
+int    i_maxLoss = input.int(2, "Stop After N Losing Trades", minval = 1, group = G_COR)
+
+bool   f1 = input.bool(false, "F1 Trend-day veto (session efficiency ratio <= 0.5)", group = G_FLT)
+bool   f2 = input.bool(false, "F2 Regime: variance ratio (q=6, 20 sessions) < 1", group = G_FLT)
+bool   f3 = input.bool(false, "F3 Reversal bar after the stretch", group = G_FLT)
+bool   f4 = input.bool(false, "F4 Stretch reached prior session low/high", group = G_FLT)
+bool   f5 = input.bool(false, "F5 Daily trend: longs above / shorts below 20-day average", group = G_FLT)
+bool   f6 = input.bool(false, "F6 Midday only (10:30-14:30 ET)", group = G_FLT)
+bool   f7 = input.bool(false, "F7 Volatility band: ATR(14) between 20th-80th pct of 250 days", group = G_FLT)
+
+bool   i_showV     = input.bool(true, "Show VWAP & k bands", group = G_OUT)
+bool   i_showPanel = input.bool(true, "Show Dashboard", group = G_OUT)
+string i_acctTag   = input.string("TP-01", "Alert Account Tag", group = G_OUT)
+
+if timeframe.in_seconds() >= timeframe.in_seconds("D")
+    runtime.error("Use an intraday timeframe (designed for 5-minute).")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SESSION (RTH 09:30-16:00 ET)
+// ══════════════════════════════════════════════════════════════════════════════
+bool inRth  = not na(time(timeframe.period, "0930-1600", NY))
+bool newRth = inRth and not inRth[1]
+int  mins   = hour(time, NY) * 60 + minute(time, NY)
+bool inWin  = f6 ? (mins >= 630 and mins < 870) : not na(time(timeframe.period, i_win, NY))
+
+// VWAP and its volume-weighted 1-sigma band, reset at 09:30
+[vwap, up1, lo1] = ta.vwap(hlc3, newRth, 1.0)
+float sigma = up1 - vwap
+float z     = sigma > 0 ? (close - vwap) / sigma : na
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SESSION STATISTICS FOR THE FILTERS
+// ══════════════════════════════════════════════════════════════════════════════
+var float sOpen = na
+var float sPath = 0.0
+var float sHigh = na
+var float sLow  = na
+var float sV1   = 0.0     // sum of squared 1-bar log returns this session
+var float sV6   = 0.0     // sum of squared 6-bar log returns / 6 this session
+var int   sBar  = 0
+var float pHigh = na      // prior session
+var float pLow  = na
+var float pClose = na
+var float lastRthClose = na
+var array<float> dCloses = array.new<float>()
+var array<float> dV1     = array.new<float>()
+var array<float> dV6     = array.new<float>()
+var array<float> dAtr    = array.new<float>()
+var float atr14 = na
+
+if newRth
+    if not na(sHigh)
+        // close out the previous session: daily TR -> ATR(14) (Wilder), closes, VR sums
+        float tr = na(pClose) ? sHigh - sLow : math.max(sHigh - sLow, math.max(math.abs(sHigh - pClose), math.abs(sLow - pClose)))
+        atr14 := na(atr14) ? tr : atr14 + (tr - atr14) / 14
+        array.push(dAtr, atr14)
+        if array.size(dAtr) > 250
+            array.shift(dAtr)
+        array.push(dCloses, lastRthClose)
+        if array.size(dCloses) > 20
+            array.shift(dCloses)
+        array.push(dV1, sV1)
+        array.push(dV6, sV6)
+        if array.size(dV1) > 20
+            array.shift(dV1)
+            array.shift(dV6)
+        pHigh  := sHigh
+        pLow   := sLow
+        pClose := lastRthClose
+    sOpen := open
+    sPath := 0.0
+    sHigh := high
+    sLow  := low
+    sV1   := 0.0
+    sV6   := 0.0
+    sBar  := 0
+else if inRth
+    sPath += math.abs(close - close[1])
+    sHigh := math.max(sHigh, high)
+    sLow  := math.min(sLow, low)
+    sBar  += 1
+    float r1 = math.log(close / close[1])
+    sV1 += r1 * r1
+    if sBar >= 6
+        float r6 = math.log(close / close[6])
+        sV6 += r6 * r6 / 6
+if inRth
+    lastRthClose := close
+
+float er    = sPath > 0 ? math.abs(close - sOpen) / sPath : na
+float vr    = array.size(dV1) >= 20 and array.sum(dV1) > 0 ? array.sum(dV6) / array.sum(dV1) : na
+float sma20 = array.size(dCloses) >= 20 ? array.avg(dCloses) : na
+float atrPrev = array.size(dAtr) >= 1 ? array.get(dAtr, array.size(dAtr) - 1) : na
+float atrLo = array.size(dAtr) >= 120 ? array.percentile_linear_interpolation(dAtr, 20) : na
+float atrHi = array.size(dAtr) >= 120 ? array.percentile_linear_interpolation(dAtr, 80) : na
+float lo4   = ta.lowest(low, 4)
+float hi4   = ta.highest(high, 4)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SIGNAL
+// ══════════════════════════════════════════════════════════════════════════════
+float costPts = 2 * (1.55 + 2 * syminfo.mintick * syminfo.pointvalue) / syminfo.pointvalue
+float zSig    = f3 ? z[1] : z
+
+var int nLong   = 0
+var int nShort  = 0
+var int nLosses = 0
+var int sessT   = 0
+if newRth
+    nLong   := 0
+    nShort  := 0
+    nLosses := 0
+    sessT   := time
+
+bool flat   = strategy.position_size == 0
+bool dayOK  = (not f2 or (not na(vr) and vr < 1)) and (not f7 or (not na(atrLo) and atrPrev >= atrLo and atrPrev <= atrHi))
+bool base   = inRth and inWin and flat and nLosses < i_maxLoss and not na(zSig) and dayOK
+bool edgeOK = math.abs(close - vwap) >= i_edge * costPts
+bool erOK   = not f1 or (not na(er) and er <= 0.5)
+
+bool longSig = base and edgeOK and erOK and zSig <= -i_k and nLong < i_maxSide
+     and (not f3 or close > open)
+     and (not f4 or (not na(pLow) and lo4 <= pLow))
+     and (not f5 or (not na(sma20) and pClose > sma20))
+bool shortSig = base and edgeOK and erOK and zSig >= i_k and nShort < i_maxSide
+     and (not f3 or close < open)
+     and (not f4 or (not na(pHigh) and hi4 >= pHigh))
+     and (not f5 or (not na(sma20) and pClose < sma20))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXECUTION
+// ══════════════════════════════════════════════════════════════════════════════
+f_alert(string act, int target, float stp) =>
+    '{"acct":"' + i_acctTag + '","sym":"' + syminfo.root + '","action":"' + act + '","target":' + str.tostring(target) +
+     ',"price":' + str.tostring(close, format.mintick) + (na(stp) ? "" : ',"stop":' + str.tostring(stp, format.mintick)) + '}'
+
+var float stopPx  = na
+var int   entryBar = na
+var bool  entryOOS = false
+
+if barstate.isconfirmed and longSig
+    stopPx := math.round_to_mintick(close - i_stopSg * sigma)
+    strategy.entry("L", strategy.long, qty = i_qty, comment = "Fade long", alert_message = f_alert("buy", i_qty, stopPx))
+    strategy.exit("XL", "L", stop = stopPx, limit = math.round_to_mintick(vwap), comment_loss = "Stop", comment_profit = "VWAP", alert_message = f_alert("flat", 0, na))
+    nLong += 1
+else if barstate.isconfirmed and shortSig
+    stopPx := math.round_to_mintick(close + i_stopSg * sigma)
+    strategy.entry("S", strategy.short, qty = i_qty, comment = "Fade short", alert_message = f_alert("sell", -i_qty, stopPx))
+    strategy.exit("XS", "S", stop = stopPx, limit = math.round_to_mintick(vwap), comment_loss = "Stop", comment_profit = "VWAP", alert_message = f_alert("flat", 0, na))
+    nShort += 1
+
+bool opened = strategy.position_size != 0 and strategy.position_size[1] == 0
+if opened
+    entryBar := bar_index
+    entryOOS := time >= i_oos
+    // re-anchor the stop to the actual fill: 1.5 sigma (at the signal bar) beyond the entry price
+    float sgAtSignal = sigma[1]
+    stopPx := math.round_to_mintick(strategy.position_avg_price - math.sign(strategy.position_size) * i_stopSg * sgAtSignal)
+
+// Target = this bar's VWAP (works on the next bar), stop fixed
+if strategy.position_size > 0
+    strategy.exit("XL", "L", stop = stopPx, limit = math.round_to_mintick(vwap), comment_loss = "Stop", comment_profit = "VWAP", alert_message = f_alert("flat", 0, na))
+else if strategy.position_size < 0
+    strategy.exit("XS", "S", stop = stopPx, limit = math.round_to_mintick(vwap), comment_loss = "Stop", comment_profit = "VWAP", alert_message = f_alert("flat", 0, na))
+
+bool timeUp = strategy.position_size != 0 and not na(entryBar) and bar_index - entryBar >= i_maxBars
+bool eod    = strategy.position_size != 0 and (mins >= 950 or not inRth)
+if timeUp or eod
+    strategy.close_all(comment = eod ? "EOD" : "Time", immediately = true, alert_message = f_alert("flat", 0, na))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STATISTICS: in-sample vs out-of-sample (by entry time)
+// ══════════════════════════════════════════════════════════════════════════════
+var int   isN  = 0
+var int   isW  = 0
+var float isGW = 0.0
+var float isGL = 0.0
+var int   osN  = 0
+var int   osW  = 0
+var float osGW = 0.0
+var float osGL = 0.0
+var int   seenClosed = 0
+if strategy.closedtrades > seenClosed
+    for t = seenClosed to strategy.closedtrades - 1
+        float pnl = strategy.closedtrades.profit(t)
+        bool  oos = strategy.closedtrades.entry_time(t) >= i_oos
+        if pnl < 0 and strategy.closedtrades.exit_time(t) >= sessT
+            nLosses += 1
+        if oos
+            osN += 1
+            osW += pnl > 0 ? 1 : 0
+            osGW += pnl > 0 ? pnl : 0.0
+            osGL += pnl > 0 ? 0.0 : -pnl
+        else
+            isN += 1
+            isW += pnl > 0 ? 1 : 0
+            isGW += pnl > 0 ? pnl : 0.0
+            isGL += pnl > 0 ? 0.0 : -pnl
+    seenClosed := strategy.closedtrades
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS & DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+plot(i_showV and inRth ? vwap : na, "VWAP", color.new(color.orange, 0), 2, plot.style_linebr)
+plot(i_showV and inRth ? vwap + i_k * sigma : na, "VWAP + k sigma", color.new(color.red, 40), 1, plot.style_linebr)
+plot(i_showV and inRth ? vwap - i_k * sigma : na, "VWAP - k sigma", color.new(color.green, 40), 1, plot.style_linebr)
+plot(strategy.position_size != 0 ? stopPx : na, "Stop", color.red, 1, plot.style_linebr)
+plotshape(longSig and barstate.isconfirmed, "Fade long", shape.triangleup, location.belowbar, color.green, size = size.tiny)
+plotshape(shortSig and barstate.isconfirmed, "Fade short", shape.triangledown, location.abovebar, color.red, size = size.tiny)
+
+var table tb = table.new(position.bottom_right, 3, 7, bgcolor = color.new(#0e1117, 10), border_width = 1, border_color = color.new(color.gray, 70))
+f_cell(int c, int r, string t, color col) =>
+    table.cell(tb, c, r, t, text_color = col, text_size = size.tiny)
+f_pf(float w, float l) =>
+    l > 0 ? str.tostring(w / l, "0.00") : "—"
+
+if i_showPanel and barstate.islast
+    string flt = (f1 ? "F1 " : "") + (f2 ? "F2 " : "") + (f3 ? "F3 " : "") + (f4 ? "F4 " : "") + (f5 ? "F5 " : "") + (f6 ? "F6 " : "") + (f7 ? "F7 " : "")
+    f_cell(0, 0, "TP VWAP REVERT", color.white)
+    f_cell(1, 0, "k " + str.tostring(i_k, "0.0") + " · " + syminfo.root, color.white)
+    f_cell(2, 0, flt == "" ? "core" : flt, color.yellow)
+    f_cell(0, 1, "", color.silver)
+    f_cell(1, 1, "IN-SAMPLE", color.silver)
+    f_cell(2, 1, "OUT-OF-SAMPLE", color.yellow)
+    f_cell(0, 2, "Trades · win %", color.silver)
+    f_cell(1, 2, str.tostring(isN) + " · " + (isN > 0 ? str.tostring(isW * 100.0 / isN, "0") + "%" : "—"), color.white)
+    f_cell(2, 2, str.tostring(osN) + " · " + (osN > 0 ? str.tostring(osW * 100.0 / osN, "0") + "%" : "—"), color.white)
+    f_cell(0, 3, "Profit factor", color.silver)
+    f_cell(1, 3, f_pf(isGW, isGL), color.white)
+    f_cell(2, 3, f_pf(osGW, osGL), osGL > 0 and osGW / osGL >= 1.3 ? color.lime : color.orange)
+    f_cell(0, 4, "Net", color.silver)
+    f_cell(1, 4, "$" + str.tostring(isGW - isGL, "#,##0"), isGW >= isGL ? color.lime : color.red)
+    f_cell(2, 4, "$" + str.tostring(osGW - osGL, "#,##0"), osGW >= osGL ? color.lime : color.red)
+    f_cell(0, 5, "Max DD (all)", color.silver)
+    f_cell(1, 5, "$" + str.tostring(strategy.max_drawdown, "#,##0"), strategy.max_drawdown > 2000 ? color.red : color.lime)
+    f_cell(2, 5, "OOS from " + str.format_time(i_oos, "yyyy-MM-dd", NY), color.silver)
+    f_cell(0, 6, "Gate", color.silver)
+    f_cell(1, 6, "OOS PF >= 1.3", color.silver)
+    f_cell(2, 6, osGL > 0 and osGW / osGL >= 1.3 ? "PASS (then prop.py)" : "not yet", osGL > 0 and osGW / osGL >= 1.3 ? color.lime : color.orange)
