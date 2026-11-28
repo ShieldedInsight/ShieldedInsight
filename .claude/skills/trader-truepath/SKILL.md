@@ -89,6 +89,18 @@ still uses the VIX side and a resting stop order, which lost money in the same t
 (−51%). Align the bot's entry before trading it live. The grade did not sort trades
 reliably out of sample; the 3% step is a modest bet, not an edge. MCL had no edge.
 
+## Forward test (Nov 30 – Dec 11, 2026)
+
+`forward.py` paper-trades the frozen rule (TP-ORB-forward-1: 09:00–10:00 range, candle side, first
+break must be on that side, stop at the other edge, 3R, flat 15:55) on a simulated Tradeify Select 50K
+account: MNQ $500 risk in the account, MES $300 as a shadow. A scheduled task runs
+`python3 forward.py settle` after each close; it settles any finished session not yet in
+`trader/truepath/forward/ledger.csv` from Yahoo 5-minute bars, updates `account.json` and the
+report `README.md`. Never edit the rules during the window. Research behind it (Nov 28):
+4 candidates on hourly NQ/ES 2024–26: ORB with candle side PF 1.50–1.58 in- and out-of-sample;
+two-sided ORB weaker; noise-area momentum and RSI(2) reversal failed; parameter refinements did not
+transfer out of sample (ES rank correlation −0.68), so none were adopted.
+
 ## Second leg: gold (MGC) — experimental
 
 Same range (09:00–10:00 ET) on MGC, side = the direction the 09:00–10:00 hour

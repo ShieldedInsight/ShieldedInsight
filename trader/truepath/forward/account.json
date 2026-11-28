@@ -1,0 +1,13 @@
+{
+  "plan": "Tradeify Select 50K",
+  "start": 50000.0,
+  "balance": 50000.0,
+  "profit": 0.0,
+  "target": 3000,
+  "floor": 48000.0,
+  "room": 2000.0,
+  "best_day": 0.0,
+  "consistency_needs_profit_of": 0,
+  "status": "in evaluation",
+  "days": []
+}
