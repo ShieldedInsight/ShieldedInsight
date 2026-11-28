@@ -91,9 +91,9 @@ reliably out of sample; the 3% step is a modest bet, not an edge. MCL had no edg
 
 ## Forward test (Nov 30 – Dec 11, 2026)
 
-`forward.py` paper-trades the frozen rule (TP-ORB-forward-2: 09:00–10:00 range, candle side, first
+`forward.py` paper-trades the frozen rule (TP-ORB-forward-3: 09:00–10:00 range, candle side, first
 break must be on that side, stop at the other edge, 3R, flat 15:55) on a simulated Tradeify Select 50K
-account: **MES $300 risk in the account, skipping days whose range is wider than 1.5× its 20-session
+account: **MES $400 risk (about 3 contracts) in the account, skipping days whose range is wider than 1.5× its 20-session
 median**; MNQ $500 (no filter) logged as a shadow. A scheduled task runs `python3 forward.py settle`
 after each close; it settles any finished session not yet in `trader/truepath/forward/ledger.csv`
 from Yahoo 5-minute bars, updates `account.json` and the report `README.md`. Never edit the rules
@@ -104,8 +104,8 @@ Research behind it (Nov 28, hourly NQ/ES Jul 2024 – Nov 25 2026, all data, 202
   2026; two-sided ORB weaker; noise-area momentum and RSI(2) reversal failed.
 - Refinement adopted only if it beat the plain rule in all three periods: the 1.5× range filter
   passed on ES (+0.243 R, PF 1.58) but not on NQ (worse in H2 2024), so MES only.
-- Select 50K simulation from every start day: MES $300 filtered 91% passed / 0% failed (median 116
-  sessions); MNQ $500 77% / 11% (61); MNQ $500 + MES $300 80% / 18% (49).
+- Select 50K simulation from every start day, MES filtered: $300 91% passed / 0% failed (median 116
+  sessions); $400 84% / 12% (57; 2026 starts 89% / 0%), chosen to add contracts; $500 80% / 20% (43); MNQ $500 77% / 11% (61); MNQ $500 + MES $300 80% / 18% (49).
 - With 2026 used to choose, the forward window is the only test on unseen data.
 
 ## Second leg: gold (MGC) — experimental

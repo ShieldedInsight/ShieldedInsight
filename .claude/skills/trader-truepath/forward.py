@@ -5,7 +5,8 @@ The rules below were frozen BEFORE the first forward session (2026-11-30). Resea
 hourly NQ / ES futures, Jul 2024 - Nov 25 2026 (all data, 2026 included): four candidates, the
 opening-range rule kept; one refinement adopted for MES only because it beat the plain rule in each of
 H2 2024, 2025 and 2026 (skip days whose range is wider than 1.5x its 20-session median); MES $300
-chosen for the account (Select 50K simulation: 91% passed, 0% failed; MNQ $500: 77% / 11%).
+chosen for the account, then raised to $400 risk (~3 contracts) on request (Select 50K simulation:
+$400 84% passed / 12% failed, median 57 sessions; $300 91% / 0%, 116; $500 80% / 20%).
 Each run settles every finished session of the window that is not in the ledger yet, from Yahoo
 5-minute bars, so a missed run is caught up later. Nothing here places an order.
 
@@ -21,7 +22,7 @@ Rules (MES in the account, MNQ logged alongside as a shadow, not in the account)
   ties    a bar that touches both edges before entry -> no trade; a bar touching stop and target ->
           stop; the entry bar can only stop out
   filter  MES only: skip the day if the range is wider than 1.5x the median range of the prior 20 sessions
-  size    contracts = floor(risk / (range x point value + costs)); MES $300, MNQ $500; 0 -> skip
+  size    contracts = floor(risk / (range x point value + costs)); MES $400, MNQ $500; 0 -> skip
   costs   $1.55 commission + 1 tick slippage per side
 """
 import csv
@@ -34,11 +35,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from truepath import fetch_bars, PLANS, NY  # noqa: E402
 
-RULES_VERSION = "TP-ORB-forward-2 (frozen 2026-11-28)"
+RULES_VERSION = "TP-ORB-forward-3 (frozen 2026-11-28)"
 START, END = dt.date(2026, 11, 30), dt.date(2026, 12, 11)
 PLAN = "select50"
 MARKETS = {  # role: account = counts toward the prop account; shadow = logged only
-    "MES": dict(yahoo="ES=F", pv=5.0, tick=0.25, risk=300.0, role="account", max_width=1.5),
+    "MES": dict(yahoo="ES=F", pv=5.0, tick=0.25, risk=400.0, role="account", max_width=1.5),
     "MNQ": dict(yahoo="NQ=F", pv=2.0, tick=0.25, risk=500.0, role="shadow", max_width=None),
 }
 COMM, SLIP, TARGET_R = 1.55, 1, 3.0
@@ -177,7 +178,7 @@ def git_head():
 def write_report(rows, acc):
     trades = [r for r in rows if r["result"] in ("target", "stop", "end of day")]
     lines = [f"# TruePath forward test · {START:%b %-d} – {END:%b %-d, %Y}", "",
-             f"Rules: {RULES_VERSION} · account: {acc['plan']} · MES $300 risk (1.5x range filter) in the account, MNQ $500 logged as a shadow.", "",
+             f"Rules: {RULES_VERSION} · account: {acc['plan']} · MES $400 risk (1.5x range filter) in the account, MNQ $500 logged as a shadow.", "",
              f"**Account:** ${acc['balance']:,.2f} ({acc['profit']:+,.2f}) · floor ${acc['floor']:,.2f} · room ${acc['room']:,.2f} · "
              f"target +${acc['target']:,} · best day ${acc['best_day']:,.2f} · **{acc['status']}**", ""]
     for sym in MARKETS:
