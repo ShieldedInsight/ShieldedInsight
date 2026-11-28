@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """TruePath forward test: two weeks of paper trading on a simulated Tradeify Select 50K account.
 
-The rules below were frozen BEFORE the first forward session (2026-11-30) after the research round
-of 2026-11-28 (four candidates, the opening-range rule kept, refinements rejected as curve-fitting).
+The rules below were frozen BEFORE the first forward session (2026-11-30). Research of 2026-11-28 on
+hourly NQ / ES futures, Jul 2024 - Nov 25 2026 (all data, 2026 included): four candidates, the
+opening-range rule kept; one refinement adopted for MES only because it beat the plain rule in each of
+H2 2024, 2025 and 2026 (skip days whose range is wider than 1.5x its 20-session median); MES $300
+chosen for the account (Select 50K simulation: 91% passed, 0% failed; MNQ $500: 77% / 11%).
 Each run settles every finished session of the window that is not in the ledger yet, from Yahoo
 5-minute bars, so a missed run is caught up later. Nothing here places an order.
 
   python3 forward.py settle        # settle finished sessions, update the account and the report
   python3 forward.py status        # print the account and the trades so far
 
-Rules (MNQ in the account, MES logged alongside as a shadow, not in the account):
+Rules (MES in the account, MNQ logged alongside as a shadow, not in the account):
   range   high / low of 09:00-10:00 ET (5-minute bars 09:00..09:55)
   side    the 09:00-10:00 candle: close above its open -> long only, below -> short only
   entry   the FIRST touch of a range edge between 10:00 and 15:00 must be on that side, else no
@@ -17,7 +20,8 @@ Rules (MNQ in the account, MES logged alongside as a shadow, not in the account)
   stop    the other edge;  target 3R;  flat at 15:55 ET
   ties    a bar that touches both edges before entry -> no trade; a bar touching stop and target ->
           stop; the entry bar can only stop out
-  size    contracts = floor(risk / (range x point value + costs)); MNQ $500, MES $300; 0 -> skip
+  filter  MES only: skip the day if the range is wider than 1.5x the median range of the prior 20 sessions
+  size    contracts = floor(risk / (range x point value + costs)); MES $300, MNQ $500; 0 -> skip
   costs   $1.55 commission + 1 tick slippage per side
 """
 import csv
@@ -30,12 +34,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from truepath import fetch_bars, PLANS, NY  # noqa: E402
 
-RULES_VERSION = "TP-ORB-forward-1 (frozen 2026-11-28)"
+RULES_VERSION = "TP-ORB-forward-2 (frozen 2026-11-28)"
 START, END = dt.date(2026, 11, 30), dt.date(2026, 12, 11)
 PLAN = "select50"
 MARKETS = {  # role: account = counts toward the prop account; shadow = logged only
-    "MNQ": dict(yahoo="NQ=F", pv=2.0, tick=0.25, risk=500.0, role="account"),
-    "MES": dict(yahoo="ES=F", pv=5.0, tick=0.25, risk=300.0, role="shadow"),
+    "MES": dict(yahoo="ES=F", pv=5.0, tick=0.25, risk=300.0, role="account", max_width=1.5),
+    "MNQ": dict(yahoo="NQ=F", pv=2.0, tick=0.25, risk=500.0, role="shadow", max_width=None),
 }
 COMM, SLIP, TARGET_R = 1.55, 1, 3.0
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
@@ -47,6 +51,20 @@ FIELDS = ["date", "sym", "role", "or_high", "or_low", "width", "side", "result",
 
 def hm(t):
     return t.hour * 60 + t.minute
+
+
+def or_width(bars, day):
+    orb = [x for x in bars if x[0].date() == day and 9 * 60 <= hm(x[0]) < 10 * 60]
+    return max(x[2] for x in orb) - min(x[3] for x in orb) if len(orb) >= 12 else None
+
+
+def prior_median_width(bars, day, n=20):
+    days = sorted({x[0].date() for x in bars if x[0].date() < day and x[0].weekday() < 5})
+    w = [v for v in (or_width(bars, d) for d in days) if v is not None][-n:]
+    if len(w) < n:
+        return None
+    w.sort()
+    return (w[n // 2 - 1] + w[n // 2]) / 2
 
 
 def settle_day(bars, day, m):
@@ -66,6 +84,12 @@ def settle_day(bars, day, m):
                side={1: "long", -1: "short", 0: "none"}[side], qty=qty, pts=0, pnl=0.0, R=0.0, note="")
     if side == 0 or w <= 0:
         return {**row, "result": "no trade", "note": "flat opening candle"}
+    if m.get("max_width"):
+        med = prior_median_width(bars, day)
+        if med is None:
+            return None
+        if w > m["max_width"] * med:
+            return {**row, "result": "no trade", "note": f"range {w:.2f} > {m['max_width']}x 20-day median {med:.2f}"}
     entry = stop = tgt = None
     i_fill = None
     for i, x in enumerate(after):
@@ -153,7 +177,7 @@ def git_head():
 def write_report(rows, acc):
     trades = [r for r in rows if r["result"] in ("target", "stop", "end of day")]
     lines = [f"# TruePath forward test · {START:%b %-d} – {END:%b %-d, %Y}", "",
-             f"Rules: {RULES_VERSION} · account: {acc['plan']} · MNQ $500 risk in the account, MES $300 logged as a shadow.", "",
+             f"Rules: {RULES_VERSION} · account: {acc['plan']} · MES $300 risk (1.5x range filter) in the account, MNQ $500 logged as a shadow.", "",
              f"**Account:** ${acc['balance']:,.2f} ({acc['profit']:+,.2f}) · floor ${acc['floor']:,.2f} · room ${acc['room']:,.2f} · "
              f"target +${acc['target']:,} · best day ${acc['best_day']:,.2f} · **{acc['status']}**", ""]
     for sym in MARKETS:
@@ -166,7 +190,7 @@ def write_report(rows, acc):
     for r in rows:
         lines.append(f"| {r['date']} | {r['sym']} | {r['side']} | {r['result']} | {r.get('entry_time','')} {r.get('entry','')} | {r.get('stop','')} | "
                      f"{r.get('target','')} | {r.get('exit_time','')} {r.get('exit','')} | {r.get('qty','')} | {r.get('pnl','')} | {r.get('R','')} | {r.get('note','')} |")
-    lines += ["", "Backtest expectation per MNQ trade (2024–26 hourly): win ≈ 56%, avg ≈ +0.18 R. Ten sessions is far too few to confirm or reject the edge;",
+    lines += ["", "Backtest expectation per trade (hourly, Jul 2024 – Nov 2026): MES with the filter win ≈ 55%, avg ≈ +0.24 R; MNQ win ≈ 56%, avg ≈ +0.18 R. Ten sessions is far too few to confirm or reject the edge;",
               "this log checks that the rules run as designed on unseen data. Yahoo 5-minute futures data; history, not advice."]
     with open(os.path.join(OUT, "README.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -186,7 +210,7 @@ def cmd_settle():
         todo = [d for d in days if (d.isoformat(), sym) not in done]
         if not todo:
             continue
-        bars = fetch_bars(m["yahoo"], "5m", "1mo")
+        bars = fetch_bars(m["yahoo"], "5m", "60d")
         for d in todo:
             r = settle_day(bars, d, m)
             if r is None:
