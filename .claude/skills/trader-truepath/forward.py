@@ -175,6 +175,40 @@ def git_head():
         return ""
 
 
+SCALING = {"A: +1 micro per $500 profit": 500, "B: +1 micro per $1,000 profit": 1000}
+SCALE_CAP = 10
+
+
+def scaled_accounts(rows):
+    """Shadow accounts on the same account-market trades: base contracts + 1 per step of profit (cap 10).
+    Same Select 50K rules. Not the official account: the backtest favoured no scaling in an evaluation
+    (pass 84% / fail 12% vs A 56% / 32%, B 70% / 15%)."""
+    p = PLANS[PLAN]
+    out = {}
+    for name, step in SCALING.items():
+        bal = peak = best = 0.0
+        status, last_q = "in evaluation", None
+        for r in sorted((r for r in rows if r["role"] == "account"), key=lambda r: r["date"]):
+            q0 = int(r.get("qty") or 0)
+            if r["result"] not in ("target", "stop", "end of day") or q0 == 0:
+                continue
+            q = min(SCALE_CAP, q0 + int(max(bal, 0) // step))
+            day = float(r["pnl"]) / q0 * q
+            last_q = q
+            bal += day
+            best = max(best, day)
+            peak = max(peak, bal)
+            if status == "in evaluation":
+                if bal <= min(peak - p["dd"], 0.0):
+                    status = f"FAILED on {r['date']}"
+                elif bal >= p["target"] and best <= p["cons"] * bal:
+                    status = f"PASSED on {r['date']}"
+        floor = min(peak - p["dd"], 0.0)
+        out[name] = dict(balance=round(50000 + bal, 2), floor=round(50000 + floor, 2), room=round(bal - floor, 2),
+                         contracts_last_trade=last_q, next_extra_at=round(50000 + (int(max(bal, 0) // step) + 1) * step, 2), status=status)
+    return out
+
+
 def write_report(rows, acc):
     trades = [r for r in rows if r["result"] in ("target", "stop", "end of day")]
     lines = [f"# TruePath forward test · {START:%b %-d} – {END:%b %-d, %Y}", "",
@@ -187,6 +221,9 @@ def write_report(rows, acc):
             pn = sum(float(r["pnl"]) for r in t)
             w = sum(float(r["pnl"]) > 0 for r in t)
             lines.append(f"- {sym} ({MARKETS[sym]['role']}): {len(t)} trades, {w} winners, P&L ${pn:,.2f}, avg R {sum(float(r['R']) for r in t) / len(t):+.2f}")
+    lines += ["", "**Scaling ladders (shadow accounts, same trades, base contracts + 1 per step of profit, max 10):**", ""]
+    for name, a in acc.get("scaled", {}).items():
+        lines.append(f"- {name}: ${a['balance']:,.2f} · floor ${a['floor']:,.2f} · room ${a['room']:,.2f} · last trade {a['contracts_last_trade'] or '–'} contracts · **{a['status']}**")
     lines += ["", "| Date | Mkt | Side | Result | Entry | Stop | Target | Exit | Qty | P&L | R | Note |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         lines.append(f"| {r['date']} | {r['sym']} | {r['side']} | {r['result']} | {r.get('entry_time','')} {r.get('entry','')} | {r.get('stop','')} | "
@@ -231,6 +268,7 @@ def cmd_settle():
         for r in rows:
             w.writerow({k: r.get(k, "") for k in FIELDS})
     acc = account(rows)
+    acc["scaled"] = scaled_accounts(rows)
     with open(os.path.join(OUT, "account.json"), "w") as f:
         json.dump(acc, f, indent=2)
     write_report(rows, acc)

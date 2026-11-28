@@ -9,5 +9,23 @@
   "best_day": 0.0,
   "consistency_needs_profit_of": 0,
   "status": "in evaluation",
-  "days": []
+  "days": [],
+  "scaled": {
+    "A: +1 micro per $500 profit": {
+      "balance": 50000.0,
+      "floor": 48000.0,
+      "room": 2000.0,
+      "contracts_last_trade": null,
+      "next_extra_at": 50500,
+      "status": "in evaluation"
+    },
+    "B: +1 micro per $1,000 profit": {
+      "balance": 50000.0,
+      "floor": 48000.0,
+      "room": 2000.0,
+      "contracts_last_trade": null,
+      "next_extra_at": 51000,
+      "status": "in evaluation"
+    }
+  }
 }

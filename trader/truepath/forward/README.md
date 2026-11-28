@@ -5,6 +5,11 @@ Rules: TP-ORB-forward-3 (frozen 2026-11-28) · account: Tradeify Select 50K · M
 **Account:** $50,000.00 (+0.00) · floor $48,000.00 · room $2,000.00 · target +$3,000 · best day $0.00 · **in evaluation**
 
 
+**Scaling ladders (shadow accounts, same trades, base contracts + 1 per step of profit, max 10):**
+
+- A: +1 micro per $500 profit: $50,000.00 · floor $48,000.00 · room $2,000.00 · last trade – contracts · **in evaluation**
+- B: +1 micro per $1,000 profit: $50,000.00 · floor $48,000.00 · room $2,000.00 · last trade – contracts · **in evaluation**
+
 | Date | Mkt | Side | Result | Entry | Stop | Target | Exit | Qty | P&L | R | Note |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 

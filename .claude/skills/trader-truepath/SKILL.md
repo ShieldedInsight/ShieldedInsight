@@ -107,6 +107,10 @@ Research behind it (Nov 28, hourly NQ/ES Jul 2024 – Nov 25 2026, all data, 202
 - Select 50K simulation from every start day, MES filtered: $300 91% passed / 0% failed (median 116
   sessions); $400 84% / 12% (57; 2026 starts 89% / 0%), chosen to add contracts; $500 80% / 20% (43); MNQ $500 77% / 11% (61); MNQ $500 + MES $300 80% / 18% (49).
 - With 2026 used to choose, the forward window is the only test on unseen data.
+- Profit-based scaling (+1 micro per $500 or per $1,000 of profit, max 10) was tested on request and
+  NOT adopted for the evaluation: pass / fail 56% / 32% (per $500) and 70% / 15% (per $1,000) vs 84% /
+  12% unscaled, because the trailing floor follows profit and bigger winning days break the 40%
+  consistency rule. Both ladders are logged as shadow accounts in the forward report.
 
 ## Second leg: gold (MGC) — experimental
 
