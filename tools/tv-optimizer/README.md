@@ -97,6 +97,19 @@ is kept in `~/.tv-optimizer/runs/` and logged in `~/.tv-optimizer/runs.jsonl`.
 | `tv_score_file` | Scores an export already on disk |
 | `tv_runs` | The run log, with what changed per run |
 | `tv_inspect`, `tv_click`, `tv_set_selector` | Repair tools for when TradingView changes its page |
+| `tv_journal` | Trades from the screenshot journal, paired OPEN/CLOSE, with a summary |
+| `tv_journal_image` | Shows one journal screenshot to Claude |
+| `tv_journal_note` | Saves review tags and notes for a trade |
+
+## Trade journal (v1.1)
+
+When the TruePath Bot's Journal Mode copy raises an alert pop-up starting `TPJ|`
+(trade opened, trade closed), the extension screenshots the chart tab and saves
+PNG + JSON to `~/Downloads/TruePath-Journal/<date>/`. It needs the `downloads`
+permission (new in 1.1: reload the extension after updating), the chart window
+open and not minimized, and Chrome's "Ask where to save each file" off. It works
+without the MCP server running; `/trader-review` reads the folder later. Setup:
+`.claude/skills/trader-truepath/setup.md`, section 3b.
 
 ## When something breaks
 

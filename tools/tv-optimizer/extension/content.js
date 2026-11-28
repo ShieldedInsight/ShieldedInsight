@@ -261,5 +261,46 @@
     return true;
   });
 
+  // ── Trade journal ──────────────────────────────────────────────────────────
+  // The TruePath Bot's "Journal Mode" copy raises alert pop-ups whose text starts
+  // with TPJ|{json} when a trade opens and when it closes. Seeing one, ask the
+  // background worker to screenshot this tab and save PNG + JSON to Downloads.
+  // Messages already on the page when it loads (pop-ups, the alert log) are
+  // recorded as seen and not captured, so old events never get a new screenshot.
+  const LOAD_GRACE_MS = 10000;
+  const loadedAt = Date.now();
+  const inFlight = new Set();
+
+  async function onJournal(ev) {
+    if (!ev || !ev.ev || !ev.id) return;
+    const key = `${ev.ev}:${ev.id}`;
+    if (inFlight.has(key)) return;
+    inFlight.add(key);
+    const { tpjSeen = {}, journalOn = true } = await chrome.storage.local.get(["tpjSeen", "journalOn"]);
+    if (tpjSeen[key]) return;
+    tpjSeen[key] = Date.now();
+    for (const [k, t] of Object.entries(tpjSeen)) if (Date.now() - t > 30 * 864e5) delete tpjSeen[k];
+    await chrome.storage.local.set({ tpjSeen });
+    if (!journalOn || Date.now() - loadedAt < LOAD_GRACE_MS) return;
+    await sleep(2500);                                   // let the chart draw the bot's label first
+    chrome.runtime.sendMessage({ type: "tpj-capture", ev }).catch(() => {});
+  }
+
+  function scanForJournal(node) {
+    const t = node && (node.nodeType === 3 ? node.textContent : node.textContent) || "";
+    if (!t.includes("TPJ|")) return;
+    for (const m of t.matchAll(/TPJ\|(\{[^{}]*\})/g)) {
+      try { onJournal(JSON.parse(m[1])); } catch { /* partial text: wait for the full pop-up */ }
+    }
+  }
+
+  new MutationObserver((muts) => {
+    for (const mu of muts) {
+      if (mu.type === "characterData") scanForJournal(mu.target);
+      for (const n of mu.addedNodes) scanForJournal(n);
+    }
+  }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  scanForJournal(document.body);                         // mark what is already on the page as seen
+
   chrome.runtime.sendMessage({ type: "tvo-wake" }).catch(() => {});
 })();

@@ -20,6 +20,8 @@
   <label for="token">Token</label>
   <input id="token" type="password" placeholder="paste the token">
   <small>On your Mac: <code>cat ~/.tv-optimizer/token</code> (the file appears after Claude Code starts the server once).</small>
+  <label><input id="journalOn" type="checkbox" style="width:auto" checked> Trade journal screenshots</label>
+  <small>Screenshots the chart when the TruePath Bot's Journal Mode copy raises a "TPJ|" pop-up; saves PNG + JSON to Downloads/TruePath-Journal. Keep the chart window open, not minimized.</small>
   <button id="save">Save and connect</button>
   <div id="state">…</div>
   <script src="options.js"></script>

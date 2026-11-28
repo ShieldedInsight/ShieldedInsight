@@ -64,8 +64,50 @@ chrome.alarms.onAlarm.addListener((a) => { if (a.name === "tvo-reconnect") conne
 chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(connect);
 chrome.storage.onChanged.addListener((c) => { if (c.port || c.token) { if (ws) ws.close(); setTimeout(connect, 300); } });
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg && msg.type === "tvo-state") { connect(); sendResponse({ state }); }
+// ── Trade journal: screenshot the chart tab, save PNG + JSON to Downloads ──────
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const nyTime = (d) => d.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false }).replace(/:/g, "");
+
+async function captureTrade(ev, tab) {
+  const win = await chrome.windows.get(tab.windowId);
+  if (win.state === "minimized") throw new Error("The TradingView window is minimized: Chrome cannot screenshot it.");
+  let back = null;
+  if (!tab.active) {                                     // bring the chart forward, then put the other tab back
+    const [cur] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+    back = cur ? cur.id : null;
+    await chrome.tabs.update(tab.id, { active: true });
+    await sleep(900);
+  }
+  let png;
+  try {
+    png = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+  } finally {
+    if (back) chrome.tabs.update(back, { active: true }).catch(() => {});
+  }
+  const now = new Date();
+  const m = /(\d{4})(\d{2})(\d{2})$/.exec(String(ev.id)) || [];
+  const day = m[1] ? `${m[1]}-${m[2]}-${m[3]}` : now.toISOString().slice(0, 10);
+  const base = `TruePath-Journal/${day}/${String(ev.sym || "chart").replace(/\W/g, "")}_${ev.ev}_${nyTime(now)}`;
+  await chrome.downloads.download({ url: png, filename: `${base}.png`, conflictAction: "uniquify", saveAs: false });
+  const rec = { ...ev, capturedAt: now.toISOString(), image: `${base.split("/").pop()}.png`, chart: tab.url };
+  const json = "data:application/json;base64," + btoa(unescape(encodeURIComponent(JSON.stringify(rec, null, 2))));
+  await chrome.downloads.download({ url: json, filename: `${base}.json`, conflictAction: "uniquify", saveAs: false });
+  await chrome.storage.local.set({ lastCapture: `${ev.ev} ${ev.sym || ""} ${now.toLocaleString()}` });
+  return rec;
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === "tvo-state") {
+    connect();
+    chrome.storage.local.get({ lastCapture: "", lastCaptureError: "" }).then((j) => sendResponse({ state, ...j }));
+    return true;
+  }
   if (msg && msg.type === "tvo-wake") connect();
+  if (msg && msg.type === "tpj-capture" && sender.tab) {
+    captureTrade(msg.ev, sender.tab)
+      .then((rec) => { chrome.storage.local.set({ lastCaptureError: "" }); sendResponse({ ok: true, rec }); })
+      .catch((e) => { const err = String(e && e.message || e); chrome.storage.local.set({ lastCaptureError: err }); sendResponse({ ok: false, error: err }); });
+    return true;
+  }
 });
 connect();

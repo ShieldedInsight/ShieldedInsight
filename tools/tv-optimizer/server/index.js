@@ -228,5 +228,100 @@ server.registerTool("tv_set_selector", {
   try { return text(await call("setSelector", args, 10000)); } catch (e) { return fail(e); }
 });
 
+// ── trade journal (screenshots saved by the extension) ──────────────────────
+const JOURNAL = process.env.TVO_JOURNAL || path.join(DOWNLOADS, "TruePath-Journal");
+const NOTES = path.join(HOME, "journal-notes.jsonl");
+
+function readJournal() {
+  if (!fs.existsSync(JOURNAL)) return [];
+  const recs = [];
+  for (const day of fs.readdirSync(JOURNAL).sort()) {
+    const dir = path.join(JOURNAL, day);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".json")).sort()) {
+      try {
+        const r = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+        recs.push({ ...r, day, imagePath: path.join(dir, r.image || f.replace(/\.json$/, ".png")) });
+      } catch { /* half-written file: skip */ }
+    }
+  }
+  const notes = fs.existsSync(NOTES) ? fs.readFileSync(NOTES, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+  const trades = new Map();
+  for (const r of recs) {
+    const t = trades.get(r.id) || { id: r.id, day: r.day, sym: r.sym, notes: [] };
+    if (r.ev === "OPEN") Object.assign(t, { side: r.side, qty: r.qty, entry: r.entry, stop: r.stop, tp: r.tp, grade: r.grade, risk: r.risk, range: r.range, openImage: r.imagePath });
+    if (r.ev === "CLOSE") Object.assign(t, { outcome: r.why, exit: r.exit, pnl: r.pnl, R: r.R, closeImage: r.imagePath });
+    trades.set(r.id, t);
+  }
+  for (const n of notes) if (trades.has(n.id)) trades.get(n.id).notes.push(n);
+  return [...trades.values()];
+}
+
+function summarize(list) {
+  const done = list.filter((t) => typeof t.pnl === "number");
+  const by = (k) => Object.fromEntries([...new Set(done.map((t) => t[k] ?? "?"))].map((v) => {
+    const g = done.filter((t) => (t[k] ?? "?") === v);
+    const R = g.filter((t) => typeof t.R === "number");
+    return [v, { trades: g.length, win: +(g.filter((t) => t.pnl > 0).length / g.length).toFixed(2),
+      pnl: +g.reduce((a, t) => a + t.pnl, 0).toFixed(2), avgR: R.length ? +(R.reduce((a, t) => a + t.R, 0) / R.length).toFixed(2) : null }];
+  }));
+  return { closed: done.length, open: list.length - done.length, bySymbol: by("sym"), byGrade: by("grade"), byOutcome: by("outcome"), bySide: by("side") };
+}
+
+server.registerTool("tv_journal", {
+  title: "Trade journal",
+  description: "Lists the TruePath Bot trades the extension screenshotted (Downloads/TruePath-Journal): one row per trade with entry, stop, target, grade, outcome, P&L, R, the paths of the OPEN and CLOSE screenshots and any review notes, plus a summary by symbol, grade, outcome and side. Look at the images with tv_journal_image.",
+  inputSchema: {
+    since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Only trades on or after this date"),
+    symbol: z.string().optional(),
+  },
+}, async ({ since, symbol }) => {
+  try {
+    let list = readJournal();
+    if (since) list = list.filter((t) => t.day >= since);
+    if (symbol) list = list.filter((t) => t.sym === symbol);
+    return text({ folder: JOURNAL, summary: summarize(list), trades: list });
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("tv_journal_image", {
+  title: "Show a journal screenshot",
+  description: "Returns one screenshot from the trade journal as an image, by trade id and which moment (open or close), or by file path.",
+  inputSchema: {
+    id: z.string().optional().describe("Trade id, e.g. MNQ-20261130"),
+    moment: z.enum(["open", "close"]).optional(),
+    file: z.string().optional().describe("A .png path inside the journal folder"),
+  },
+}, async ({ id, moment = "open", file }) => {
+  try {
+    let f = file;
+    if (!f) {
+      const t = readJournal().find((x) => x.id === id);
+      if (!t) throw new Error(`No journal trade with id ${id}`);
+      f = moment === "close" ? t.closeImage : t.openImage;
+      if (!f) throw new Error(`Trade ${id} has no ${moment} screenshot`);
+    }
+    const full = path.resolve(f);
+    if (!full.startsWith(path.resolve(JOURNAL) + path.sep) || !full.endsWith(".png")) throw new Error("Only .png files inside the journal folder");
+    return { content: [{ type: "image", data: fs.readFileSync(full).toString("base64"), mimeType: "image/png" }, { type: "text", text: full }] };
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("tv_journal_note", {
+  title: "Add a review note to a trade",
+  description: "Saves a review note and tags for one journal trade (~/.tv-optimizer/journal-notes.jsonl). Use tags from the review checklist so trades can be grouped later.",
+  inputSchema: {
+    id: z.string(),
+    note: z.string(),
+    tags: z.array(z.string()).optional(),
+  },
+}, async ({ id, note, tags = [] }) => {
+  try {
+    const entry = { id, at: new Date().toISOString(), note, tags };
+    fs.appendFileSync(NOTES, JSON.stringify(entry) + "\n");
+    return text(entry);
+  } catch (e) { return fail(e); }
+});
+
 await server.connect(new StdioServerTransport());
 log(`MCP server ready · token in ${TOKEN_FILE} · runs in ${RUNS}`);

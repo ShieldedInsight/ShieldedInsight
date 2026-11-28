@@ -1,7 +1,7 @@
 // This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
 // © MoMoney8
 //@version=6
-strategy("TruePath_Bot_v1.2",
+strategy("TruePath_Bot_v1.3",
      shorttitle              = "TP Bot",
      overlay                 = true,
      initial_capital         = 10000,
@@ -17,7 +17,8 @@ strategy("TruePath_Bot_v1.2",
      use_bar_magnifier       = true,
      margin_long             = 0,
      margin_short            = 0,
-     max_bars_back           = 1000)
+     max_bars_back           = 1000,
+     max_labels_count        = 200)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TruePath Bot v1 — automated opening-range breakout for MES and MNQ
@@ -74,6 +75,14 @@ strategy("TruePath_Bot_v1.2",
 //   worst day −5.7%; 2026 alone from $10,000: +82%, drawdown −13%.
 //   The grade did not sort trades reliably in testing: treat the 3% step as a
 //   modest bet, not an edge. Prop tracker: set Account Plan, Sizing = Fixed $.
+//
+// v1.3 TRADE JOURNAL — screenshots of every trade for review
+//   Add the strategy to the chart a SECOND time with "Journal Mode" on and give
+//   that copy its own alert (no webhook, "Show pop-up" on). When the bot's
+//   position opens and when it closes (target, stop or end of day), that copy
+//   raises a pop-up starting "TPJ|"; the TruePath TV Optimizer extension sees
+//   it, screenshots the chart and saves PNG + JSON to Downloads/TruePath-Journal.
+//   Journal Mode never sends orders. Chart labels mark each entry and outcome.
 //
 // LIMITS  The tested range starts 30 min before the cash open (hourly data).
 //         Rule figures for Tradeify come from third-party summaries; verify.
@@ -139,6 +148,8 @@ int    i_flatM   = input.int(55, "", minval = 0, maxval = 59, group = G_EXT, inl
 
 bool   i_live    = input.bool(false, "Live Mode: send webhook alerts", group = G_BOT,
      tooltip = "Create ONE alert on this strategy: Condition = this script, 'alert() function calls only', Webhook URL = your bridge's URL, message left empty. Paper-trade it first.")
+bool   i_journal = input.bool(false, "Journal Mode: screenshot events only (no orders)", group = G_BOT,
+     tooltip = "For a SECOND copy of this strategy on the same chart. Its alert (no webhook, pop-up on) raises 'TPJ|' messages when a trade opens and closes; the TruePath TV Optimizer extension screenshots the chart. Never sends orders.")
 string i_tpTick  = input.string("", "Bridge Ticker (blank = chart root, e.g. MES)", group = G_BOT)
 string i_bridge  = input.string("TradersPost", "Bridge JSON Format", options = ["TradersPost", "Generic"], group = G_BOT)
 
@@ -330,6 +341,7 @@ f_simpleMsg(string act) =>
 // ORDERS — one stop entry on the VIX side, stop at the other side, 3R target
 // ══════════════════════════════════════════════════════════════════════════════
 bool  inPos  = strategy.position_size != 0
+bool  sendOrders = i_live and not i_journal
 bool  guardHit = propOn and inPos and (roomDD <= i_buffer or (not na(roomDLL) and roomDLL <= i_buffer))
 if guardHit
     dayHalt := true
@@ -348,8 +360,8 @@ if propOn
     if not na(roomDLL)
         allow := math.min(allow, roomDLL - i_buffer)
 int   qty    = orW > 0 ? math.min(int(math.floor(allow / perCt)), dynOn ? i_ctCap : i_maxCt, i_maxCt, mrgCap) : 0
-bool  wantL  = (allowDir == 1 or (allowDir == 2 and not i_live)) and i_dir != "Short only"
-bool  wantS  = (allowDir == -1 or (allowDir == 2 and not i_live)) and i_dir != "Long only"
+bool  wantL  = (allowDir == 1 or (allowDir == 2 and not (i_live or i_journal))) and i_dir != "Short only"
+bool  wantS  = (allowDir == -1 or (allowDir == 2 and not (i_live or i_journal))) and i_dir != "Long only"
 bool  armed  = orDone and (inEnt or orJustDone) and not flatBar and inBT and not tradedToday and not inPos and propOK and qty >= 1 and barstate.isconfirmed
 
 var int   nDays = 0
@@ -375,7 +387,7 @@ if armed and (wantL or wantS)
         strategy.entry("S", strategy.short, qty = qty, stop = orL, oca_name = "ORB" + str.tostring(dayId), oca_type = strategy.oca.cancel, comment = "ORB S " + str.tostring(qty))
         strategy.exit("XS", "S", stop = orH, limit = tS, comment_loss = "SL", comment_profit = "TP")
     // Live: one bracket stop order, sent once when the range completes
-    if i_live and orJustDone and barstate.isrealtime
+    if sendOrders and orJustDone and barstate.isrealtime
         alert(wantL ? f_entryMsg(1, qty, orH, orL, tL) : f_entryMsg(-1, qty, orL, orH, tS), alert.freq_once_per_bar_close)
         orderLive := true
 
@@ -386,13 +398,62 @@ bool cancelNow = (not (inEnt or orJustDone) or flatBar or not propOK) and not in
 if cancelNow
     strategy.cancel("L")
     strategy.cancel("S")
-    if i_live and orderLive and barstate.isrealtime
+    if sendOrders and orderLive and barstate.isrealtime
         alert(f_simpleMsg("cancel"), alert.freq_once_per_bar_close)
     orderLive := false
 if inPos and (flatBar or guardHit or not inBT)
     strategy.close_all(comment = guardHit ? "Prop Guard" : "EOD", immediately = true)
-    if i_live and barstate.isrealtime
+    if sendOrders and barstate.isrealtime
         alert(f_simpleMsg("exit"), alert.freq_once_per_bar_close)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TRADE JOURNAL (v1.3) — chart labels always; "TPJ|" pop-ups in Journal Mode
+// ══════════════════════════════════════════════════════════════════════════════
+var float jEntry = na
+var float jStop  = na
+var float jTgt   = na
+var int   jQty   = 0
+var string jGrade = "—"
+var bool  jOpenSent = false
+var int   jLastCT = 0
+f_jid() => syminfo.root + "-" + str.format_time(time, "yyyyMMdd", NY)
+f_jsend(string body) =>
+    bool sent = i_journal and barstate.isrealtime
+    if sent
+        alert("TPJ|" + body, alert.freq_once_per_bar_close)
+    sent
+
+bool justOpened = strategy.position_size != 0 and strategy.position_size[1] == 0
+if justOpened
+    int   d = strategy.position_size > 0 ? 1 : -1
+    jEntry := strategy.position_avg_price
+    jStop  := d == 1 ? orL : orH
+    jTgt   := na(tgtR) ? na : d == 1 ? orH + tgtR * orW : orL - tgtR * orW
+    jQty   := int(math.abs(strategy.position_size))
+    jGrade := gName
+    jOpenSent := true
+    if i_showLv
+        label.new(bar_index, d == 1 ? low : high, (d == 1 ? "LONG " : "SHORT ") + str.tostring(jQty) + " @ " + str.tostring(jEntry, format.mintick) +
+             "\nSL " + str.tostring(jStop, format.mintick) + (na(jTgt) ? "" : " · TP " + str.tostring(jTgt, format.mintick)) + "\nGrade " + jGrade,
+             style = d == 1 ? label.style_label_up : label.style_label_down, color = color.new(#2196F3, 15), textcolor = color.white, size = size.small)
+    f_jsend('{"ev":"OPEN","id":"' + f_jid() + '","sym":"' + syminfo.root + '","side":"' + (d == 1 ? "long" : "short") + '","qty":' + str.tostring(jQty) +
+         ',"entry":' + str.tostring(jEntry, format.mintick) + ',"stop":' + str.tostring(jStop, format.mintick) + ',"tp":' + (na(jTgt) ? "null" : str.tostring(jTgt, format.mintick)) +
+         ',"grade":"' + jGrade + '","risk":' + str.tostring(nz(lastRiskUSD), "0") + ',"range":' + str.tostring(orW, format.mintick) + '}')
+
+if strategy.closedtrades > jLastCT
+    int    i    = strategy.closedtrades - 1
+    float  pnl  = strategy.closedtrades.profit(i)
+    string why  = strategy.closedtrades.exit_comment(i)
+    float  xPx  = strategy.closedtrades.exit_price(i)
+    float  rr   = nz(lastRiskUSD) > 0 ? pnl / lastRiskUSD : na
+    string tag  = why == "TP" ? "TARGET" : why == "SL" ? "STOP" : why
+    if i_showLv
+        label.new(bar_index, pnl >= 0 ? high : low, tag + " " + (pnl >= 0 ? "+$" : "−$") + str.tostring(math.abs(pnl), "#,##0") + (na(rr) ? "" : " (" + str.tostring(rr, "+0.0;-0.0") + "R)"),
+             style = pnl >= 0 ? label.style_label_down : label.style_label_up, color = pnl >= 0 ? color.new(color.green, 15) : color.new(color.red, 15), textcolor = color.white, size = size.small)
+    f_jsend('{"ev":"CLOSE","id":"' + f_jid() + '","sym":"' + syminfo.root + '","why":"' + tag + '","exit":' + str.tostring(xPx, format.mintick) +
+         ',"pnl":' + str.tostring(pnl, "0.00") + ',"R":' + (na(rr) ? "null" : str.tostring(rr, "0.00")) + ',"opened":' + (jOpenSent ? "true" : "false") + '}')
+    jOpenSent := false
+    jLastCT := strategy.closedtrades
 
 // ══════════════════════════════════════════════════════════════════════════════
 // STATISTICS
@@ -441,9 +502,9 @@ f_line(int k) =>
 
 if i_showPanel and barstate.islast
     color hd = color.new(color.silver, 0)
-    f_cell(0, 0, "TRUEPATH BOT v1.2", color.white)
+    f_cell(0, 0, "TRUEPATH BOT v1.3", color.white)
     f_cell(1, 0, syminfo.ticker + (isGold ? " (gold: EXPERIMENTAL)" : tested ? "" : " (untested)"), tested and not isGold ? color.white : color.orange)
-    f_cell(2, 0, i_live ? "LIVE · webhooks on" : "backtest / paper", i_live ? color.lime : color.white)
+    f_cell(2, 0, i_journal ? "JOURNAL · no orders" : i_live ? "LIVE · webhooks on" : "backtest / paper", i_journal ? color.aqua : i_live ? color.lime : color.white)
     f_cell(0, 1, "Range · size", hd)
     f_cell(1, 1, na(orH) ? "—" : str.tostring(orL, format.mintick) + " – " + str.tostring(orH, format.mintick), color.white)
     f_cell(2, 1, na(orH) ? "—" : str.tostring(orW, format.mintick) + " pts · " + str.tostring(qty) + " ct", color.white)
