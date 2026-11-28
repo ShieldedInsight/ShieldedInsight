@@ -68,6 +68,27 @@ and `trader/truepath/account.json`.
 - Limits: hourly test bars (the tested range starts 30 min before the cash
   open); Yahoo continuous futures; Tradeify rules from third-party summaries.
 
+## Cash account (Webull) — dynamic sizing, bot v1.2 default
+
+`TruePath_Bot_v1.pine` v1.2 defaults to a $10,000 cash account with no prop rules
+(Account Plan = Off, Sizing Mode = "% of equity · by grade"):
+
+- Risk 2% of equity on a B setup, 3% on an A / A+ setup; contracts = risk ÷ (range ×
+  point value + costs), rounded down, 1–5; skip the day at 0.
+- Grade at 10:00, one point each: side agrees with yesterday's close vs its 20-day SMA;
+  today's range ≤ median of the last 20; VIX prior close < its 20-day average; not an
+  FOMC day, first Friday (NFP) or (MCL) Wednesday. A+ = 4, A = 3, B = 0–2.
+- Day-margin cap: contracts × Webull day margin ≤ 50% of equity (MNQ $161.08, MES
+  $100.10, MGC $540.54, MCL $307.18 as published Nov 2026, 09:00–16:15 ET).
+- Live: set "Live Account Equity" to the broker balance and update it weekly.
+
+$10,000 test, Jul 2024 – Nov 2026, MNQ + MES: +147%/yr, max drawdown −21%, worst day
+−5.7%; 2026 alone from $10,000: +82%, drawdown −13%. That test used the candle side
+rule and took a trade only when the range's FIRST break was on the chosen side; the bot
+still uses the VIX side and a resting stop order, which lost money in the same test
+(−51%). Align the bot's entry before trading it live. The grade did not sort trades
+reliably out of sample; the 3% step is a modest bet, not an edge. MCL had no edge.
+
 ## Second leg: gold (MGC) — experimental
 
 Same range (09:00–10:00 ET) on MGC, side = the direction the 09:00–10:00 hour
